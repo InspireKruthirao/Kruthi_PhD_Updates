@@ -1,56 +1,80 @@
 import pandas as pd
+import os
 
-input_file = "/work/microbiome/shanghai_dogs/data/ShanghaiDogs_OtherResources/GeneCatalog/SHD.ORF.orig.tsv.xz"
-target_smorf = "SHD.ORF.008_361_757"
-output_file = "/work/microbiome/shanghai_dogs/data/ShanghaiDogs_OtherResources/smORFCatalog/smorf_neighbors.tsv"
+smorf_id         = "SHD1_SM.100AA.003_862"   
+target_sample    = "D044"                    
+target_contig    = "contig_133_polypolish"  
 
-#Number of neighbors on each side
-n_neighbors = 5
-
-# Load ORF file ===
-df = pd.read_csv(
-    input_file,
-    sep="\t",
-    compression="xz",
-    dtype={"Start": int, "End": int, "Strand": int, "Partial": str},
-    low_memory=False
-)
-
-# contig_133 
-df_contig = df[df["Original_ID"].str.startswith("contig_133")].copy()
-
-# start coordinate for ordering
-df_contig = df_contig.sort_values(by="Start").reset_index(drop=True)
-
-# Locate target SmORF 
-if target_smorf not in df_contig["ORF"].values:
-    raise ValueError(f"Target SmORF {target_smorf} not found in contig_133")
-
-target_idx = df_contig.index[df_contig["ORF"] == target_smorf][0]
-
-# Extract neighbors 
-start_idx = max(0, target_idx - n_neighbors)
-end_idx = min(len(df_contig), target_idx + n_neighbors + 1)
-region = df_contig.iloc[start_idx:end_idx].copy()
-
-# Assign position labels
-region["Position"] = None
-for i, row in region.iterrows():
-    offset = i - target_idx
-    if offset == 0:
-        region.loc[i, "Position"] = "Target"
-    elif offset < 0:
-        region.loc[i, "Position"] = f"Left_{abs(offset)}"
-    else:
-        region.loc[i, "Position"] = f"Right_{offset}"
+smorf_file       = "/work/microbiome/shanghai_dogs/data/ShanghaiDogs_OtherResources/smORFCatalog/100AA_SmORFs_origins.tsv.gz"
+gene_catalog     = "/work/microbiome/shanghai_dogs/data/ShanghaiDogs_OtherResources/GeneCatalog/SHD.ORF.orig.tsv.xz"
+output_file      = "/work/microbiome/shanghai_dogs/data/ShanghaiDogs_OtherResources/smORFCatalog/smorf_neighbors.tsv"
 
 
-region = region[["ORF", "Sample", "Original_ID", "Start", "End", "Strand", "Partial", "Position"]]
+print(f"Looking for smORF: {smorf_id}")
+smorf_df = pd.read_csv(smorf_file, sep='\t', compression='gzip',
+                       names=['SmORF_ID', 'Sample', 'Contig', 'Coordinates', 'Strand'])
 
-#  display output
-region.to_csv(output_file, sep="\t", index=False)
+# Filter target
+match = smorf_df[
+    (smorf_df['SmORF_ID'] == smorf_id) &
+    (smorf_df['Sample'] == target_sample) &
+    (smorf_df['Contig'].str.startswith(target_contig))
+]
 
-print(f"✅ SmORF neighborhood written to: {output_file}\n")
-print("--- SmORF Neighborhood ---")
-print(region.to_string(index=False))
+if len(match) == 0:
+    print("Not found! Available occurrences:")
+    print(smorf_df[smorf_df['SmORF_ID'] == smorf_id][['Sample', 'Contig']].to_string(index=False))
+    exit(1)
+elif len(match) > 1:
+    print("Multiple hits — picking first one")
 
+row = match.iloc[0]
+coords = row['Coordinates']
+start, end = map(int, coords.split('-'))
+strand = row['Strand']
+
+print(f"Found in {target_sample} {row['Contig']} {coords} {strand}")
+
+print("Loading full gene catalog...")
+df = pd.read_csv(gene_catalog, sep='\t', compression='xz', header=None,
+                 names=['ORF', 'Sample', 'Contig', 'Start', 'End', 'Strand', 'Partial'],
+                 usecols=[0,1,2,3,4,5,6])
+
+contig_mask = (df['Sample'] == target_sample) & (df['Contig'].str.startswith(target_contig))
+contig_df = df[contig_mask].sort_values('Start').reset_index(drop=True)
+
+target_orf_row = contig_df[
+    (contig_df['Start'] == start) &
+    (contig_df['End'] == end)
+]
+
+if len(target_orf_row) == 0:
+    print("smORF not found in gene catalog! Possible mismatch.")
+    exit(1)
+
+idx = target_orf_row.index[0]
+orf_id = target_orf_row['ORF'].values[0]
+print(f"Matches ORF: {orf_id} at index {idx}")
+
+
+left = max(0, idx - 5)
+right = min(len(contig_df), idx + 6)
+neighbors = contig_df.iloc[left:right].copy()
+
+#contig name
+neighbors['Contig'] = "contig_133"
+
+# target
+neighbors['Note'] = ""
+neighbors.loc[neighbors['ORF'] == orf_id, 'Note'] = f"TARGET_smORF ({smorf_id})"
+
+#Reorder
+neighbors = neighbors[['ORF', 'Sample', 'Contig', 'Start', 'End', 'Strand', 'Partial', 'Note']]
+
+#Save
+neighbors.to_csv(output_file, sep='\t', index=False)
+
+print(f"\nsaved! {len(neighbors)} ORFs saved to:")
+print(output_file)
+print("\nNeighborhood:")
+print(neighbors.to_string(index=False))
