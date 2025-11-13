@@ -1,2 +1,22 @@
-# Kruthi_PhD_Updates
-This repository contains code, data, and documentation related to my PhD research. It includes analysis scripts, and findings developed during the course of the project.
+# 🧬 Small Proteins Functional Analysis via Gene Synteny
+
+#add banner here
+
+This repository contains code, data, and documentation for my **PhD research** focused on identifying **functions of small proteins** using **gene synteny** and related computational analyses.
+
+---
+
+## 🔬 Project Overview
+
+Small proteins play critical roles in biological systems, but their functions are often poorly understood. This project explores **gene neighborhood patterns**, to predict functional associations.
+
+Key objectives:WIP
+- Map neighboring genes to identify conserved synteny.
+- Cluster ORFs to reveal functionally related protein groups.
+- Annotate clusters using eggNOG for functional insights.
+- Visualize gene clusters and synteny patterns.
+
+---
+
+## 📁 Repository Structure
+
