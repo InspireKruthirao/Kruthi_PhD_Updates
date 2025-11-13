@@ -10,7 +10,7 @@ This repository contains code, data, and documentation for my **PhD research** f
 
 Small proteins play critical roles in biological systems, but their functions are often poorly understood. This project explores **gene neighborhood patterns**, to predict functional associations.
 
-Key objectives:WIP
+WIP
 - Map neighboring genes to identify conserved synteny.
 - Cluster ORFs to reveal functionally related protein groups.
 - Annotate clusters using eggNOG for functional insights.
