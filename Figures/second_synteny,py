@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.patches import FancyArrowPatch
+from pathlib import Path
+
+
+BASE_DIR = Path("/work/microbiome/shanghai_dogs/intermediate-outputs/SmORF_neighbourhoods/SHD1_SM.100AA.006_627")
+SMORF_ID = "SHD1_SM.100AA.006_627"
+WINDOW = 6                   
+ROW_HEIGHT = 0.55
+OUT_PNG = f"{SMORF_ID}_context_arrows.png"
+OUT_PDF = f"{SMORF_ID}_context_arrows.pdf"
+
+COG_COLORS = {
+    'J': '#6ec4e8', 'A': '#ff9999', 'K': '#66c2a5', 'L': '#fc8d62', 'B': '#e78ac3',
+    'D': '#ffd92f', 'V': '#b3b3b3', 'T': '#8da0cb', 'M': '#e5c494', 'N': '#b3de69',
+    'U': '#fccde5', 'O': '#d9d9d9', 'X': '#bc80bd', 'C': '#fb8072', 'G': '#bebada',
+    'E': '#ffffb3', 'F': '#80b1d3', 'H': '#fdb462', 'I': '#b3de69', 'P': '#fccde5',
+    'Q': '#d9d9d9', 'R': '#cccccc', 'S': '#999999', '-': '#ffffff'
+}
+UNKNOWN = "#dddddd"
+
+def load_neigh(p):
+    return pd.read_csv(p, sep='\t', comment='#')
+
+def load_egg(p):
+    df = pd.read_csv(p, sep='\t')
+    if df.columns[0].startswith('#'):
+        df.columns = [c.lstrip('#') for c in df.columns]
+    if "#query" in df.columns:
+        df = df.rename(columns={'#query': 'query'})
+    return df[['query', 'COG_category']].dropna(subset=['query'])
+
+
+dirs = sorted([p for p in BASE_DIR.iterdir() if p.is_dir() and p.name.startswith("D")])
+contexts = []
+
+for d in dirs:
+    neigh_f = d / "neighbors.tsv"
+    egg_f   = d / "EggNOG_annotations.tsv"
+
+    if not neigh_f.exists() or not egg_f.exists():
+        continue
+
+    neigh = load_neigh(neigh_f)
+    egg   = load_egg(egg_f)
+
+    # ensure contig column name
+    if "Contig" not in neigh.columns:
+        continue
+
+    # detect target
+    match = neigh['Note'].astype(str).str.contains(SMORF_ID)
+    if not match.any():
+        continue
+
+    tgt_index = match.idxmax()
+
+    start = max(0, tgt_index - WINDOW)
+    end   = min(len(neigh), tgt_index + WINDOW + 1)
+    win   = neigh.iloc[start:end].reset_index(drop=True)
+
+    tgt_pos = win[win['Note'].astype(str).str.contains(SMORF_ID)].index[0]
+
+    # COG lookup from EggNOG
+    egg_map = dict(zip(egg['query'], egg['COG_category']))
+
+    def get_cog(q):
+        if pd.isna(q): return "-"
+        c = egg_map.get(q, "-")
+        if pd.isna(c) or c in ("", "-"): return "-"
+        return str(c)[0]
+
+    # assign COG values
+    if "ORF" in win.columns:
+        win["COG"] = win["ORF"].apply(get_cog)
+    else:
+        win["COG"] = "-"
+
+    contig_name = win["Contig"].iloc[0]
+
+    contexts.append({
+        'name': d.name,            # e.g., D000
+        'contig_id': contig_name,  # e.g., contig_614_polypolish_157
+        'win': win,
+        'pos': tgt_pos
+    })
+
+rows = []
+for ctx in contexts:
+    for i, row in ctx["win"].iterrows():
+        rows.append({
+            "Dir_name": ctx["name"],
+            "Contig_ID": ctx["contig_id"],
+            "Position": i - ctx["pos"],
+            "ORF": row.get("ORF", ""),
+            "Start": row.get("Start", ""),
+            "End": row.get("End", ""),
+            "Strand": row.get("Strand", ""),
+            "Note": row.get("Note", ""),
+            "COG": row.get("COG", "")
+        })
+
+df_out = pd.DataFrame(rows)
+
+df_out.to_csv(f"{SMORF_ID}_context_table.tsv", sep="\t", index=False)
+df_out.to_excel(f"{SMORF_ID}_context_table.xlsx", index=False)
+
+print("Saved TSV & XLSX.")
+
+fig, ax = plt.subplots(figsize=(16, len(contexts) * ROW_HEIGHT + 4))
+
+for i, ctx in enumerate(reversed(contexts)):
+    y = i
+    win = ctx["win"]
+
+    for j, r in win.iterrows():
+        x = j - ctx["pos"]
+        cog = r["COG"]
+        strand = str(r["Strand"])
+        color = COG_COLORS.get(cog, UNKNOWN)
+
+        if j == ctx["pos"]:   # highlight SMORF
+            arrow = FancyArrowPatch(
+                (x - 0.48, y), (x + 0.48, y),
+                arrowstyle="->",
+                mutation_scale=26, lw=3.3,
+                edgecolor="black", facecolor="#e31a1c"
+            )
+            ax.text(x, y + 0.18, "TARGET", ha="center", fontsize=9, fontweight="bold")
+        else:
+            arrow = FancyArrowPatch(
+                (x - 0.45, y), (x + 0.45, y),
+                arrowstyle="->" if strand == "1" else "<-",
+                mutation_scale=16, lw=1.0,
+                edgecolor="black", facecolor=color
+            )
+            if cog != "-":
+                ax.text(x, y, cog, ha="center", va="center", fontsize=8, fontweight="bold")
+
+        ax.add_patch(arrow)
+
+    ax.text(-WINDOW - 1.2, y, f"{ctx['name']} ({ctx['contig_id']})",
+            ha="right", va="center", fontsize=10, fontweight="bold")
+
+ax.set_ylim(-1, len(contexts))
+ax.set_xlim(-WINDOW - 2, WINDOW + 2)
+ax.axis("off")
+
+plt.tight_layout()
+plt.savefig(OUT_PNG, dpi=400)
+plt.savefig(OUT_PDF)
+
+print("Saved images.")
+
