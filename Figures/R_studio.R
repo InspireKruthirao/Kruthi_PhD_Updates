@@ -23,7 +23,6 @@ contig_dirs <- list.dirs(base_path, recursive=FALSE, full.names=TRUE)
 contig_dirs <- contig_dirs[grepl("D[0-9]+_contig_", contig_dirs)]
 
 all_genes <- data.frame()
-
 for (contig_dir in contig_dirs) {
   gff_files <- list.files(contig_dir, pattern="\\.gff$", full.names=TRUE)
   if (length(gff_files) > 0) {
@@ -32,6 +31,10 @@ for (contig_dir in contig_dirs) {
     all_genes <- rbind(all_genes, genes)
   }
 }
+
+# Force all genes to point right (positive strand)
+all_genes <- all_genes %>%
+  mutate(strand = "+")
 
 seqs_data <- all_genes %>%
   group_by(seq_id) %>%
