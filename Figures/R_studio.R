@@ -2,7 +2,7 @@ library(gggenomes)
 library(dplyr)
 library(RColorBrewer)
 
-base_path <- "Z:/microbiome/shanghai_dogs/intermediate-outputs/SmORF_neighbourhoods/SHD1_SM.100AA.006_627"
+base_path <- "Z:/microbiome/shanghai_dogs/intermediate-outputs/SmORF_neighbourhoods/SHD1_SM.100AA.003_637"
 
 read_gff <- function(gff_file, contig_name) {
   df <- read.table(gff_file, sep="\t", header=FALSE, comment.char="#",
