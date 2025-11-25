@@ -88,8 +88,5 @@ print(plot_result)
 plot_width <- 12
 plot_height <- max(6, nrow(seqs_data) * 0.4)
 
-ggsave(file.path(base_path, "all_contigs_plot.pdf"), 
-       plot = plot_result, width = plot_width, height = plot_height, limitsize = FALSE)
-
 ggsave(file.path(base_path, "all_contigs_plot.png"), 
        plot = plot_result, width = plot_width, height = plot_height, dpi = 300, limitsize = FALSE)
