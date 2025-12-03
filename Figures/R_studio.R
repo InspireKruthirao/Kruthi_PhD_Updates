@@ -1,7 +1,7 @@
 library(gggenomes)
 library(dplyr)
 
-base_path <- "Z:/microbiome/shanghai_dogs/intermediate-outputs/SmORF_neighbourhoods/SHD1_SM.100AA.004_900"
+base_path <- "Z:/microbiome/shanghai_dogs/intermediate-outputs/SmORF_neighbourhoods_25_30/SHD1_SM.100AA.003_915"
 
 read_gff <- function(gff_file, contig_name) {
   df <- read.table(gff_file, sep="\t", header=FALSE, comment.char="#",
