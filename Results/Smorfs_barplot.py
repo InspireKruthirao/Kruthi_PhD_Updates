@@ -30,7 +30,7 @@ ax = plot_df.plot(kind='bar', stacked=True, width=0.8,
 
 plt.xlabel("Sample ID", fontsize=14, labelpad=12)
 plt.ylabel("Number of predicted ≤100 aa smORFs", fontsize=14)
-plt.title("Total predicted smORFs per sample", fontsize=18, fontweight='bold', pad=20)
+plt.title("", fontsize=18, fontweight='bold', pad=20)
 
 plt.legend(fontsize=14, frameon=True, fancybox=False, edgecolor='black')
 
