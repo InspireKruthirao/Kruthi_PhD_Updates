@@ -1,7 +1,7 @@
 import pandas as pd
 from pathlib import Path
 
-BASE_DIR = "/work/microbiome/shanghai_dogs/intermediate-outputs/SmORF_neighbourhoods"
+BASE_DIR = "/work/microbiome/users/kruthi/SmORF_neighbourhoods_26_30"
 
 def create_gff_for_contig(contig_dir):
     contig_path = Path(contig_dir)
