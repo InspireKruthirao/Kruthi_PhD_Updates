@@ -1,6 +1,6 @@
 library(gggenomes)
 library(dplyr)
-parent_path <- "Z:/microbiome/shanghai_dogs/intermediate-outputs/SmORF_neighbourhoods_25_30"
+parent_path <- "Z:/work/microbiome/users/kruthi/SmORF_neighbourhoods_26_30"
 all_plots_dir <- file.path(parent_path, "ALL_PLOTS")
 
 smorf_dirs <- list.dirs(parent_path, recursive = FALSE, full.names = TRUE)
