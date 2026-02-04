@@ -1,82 +1,101 @@
-library(gggenomes)
-library(dplyr)
+suppressPackageStartupMessages({
+  library(gggenomes)
+  library(dplyr)
+  library(grid)   
+})
 
-parent_path <- "Z:/microbiome/users/kruthi/SmORF_neighbourhoods_26_30"
+parent_path <- getwd()
 all_plots_dir <- file.path(parent_path, "ALL_PLOTS")
-
-# FIX: create ALL_PLOTS upfront so ggsave doesn't prompt/stop
 dir.create(all_plots_dir, showWarnings = FALSE, recursive = TRUE)
 
-smorf_dirs <- list.dirs(parent_path, recursive = FALSE, full.names = TRUE)
-smorf_dirs <- smorf_dirs[grepl("SHD1_SM", basename(smorf_dirs))]
-
-cat("Found", length(smorf_dirs), "smORF directories to process\n")
-
-if (length(smorf_dirs) == 0) {
-  cat("\nERROR: No smORF directories found!\n")
-  cat("Checking what's in the parent directory...\n")
-  all_dirs <- list.dirs(parent_path, recursive = FALSE, full.names = FALSE)
-  cat("First 10 directories:\n")
-  print(head(all_dirs, 10))
-  stop("Please check the directory structure")
-}
+cat("Parent:", parent_path, "\n")
+cat("ALL_PLOTS:", all_plots_dir, "\n")
 
 read_gff <- function(gff_file, contig_name) {
   lines <- readLines(gff_file, warn = FALSE)
   lines <- lines[!grepl("^#", lines)]
   if (length(lines) == 0) return(NULL)
 
-  df_list <- strsplit(lines, "\t")
-  max_cols <- max(sapply(df_list, length))
+  df_list <- strsplit(lines, "\t", fixed = TRUE)
+  max_cols <- max(vapply(df_list, length, integer(1)))
   df_mat <- do.call(rbind, lapply(df_list, function(x) c(x, rep(NA, max_cols - length(x)))))
   df <- as.data.frame(df_mat, stringsAsFactors = FALSE)
 
   colnames(df)[1:9] <- c("orig_seqid", "source", "type", "start", "end",
-                         "score", "strand", "phase", "attributes")
+                         "score", "strand_chr", "phase", "attributes")
 
   df$start <- as.integer(df$start)
-  df$end <- as.integer(df$end)
+  df$end   <- as.integer(df$end)
+
   df$feat_id <- sub(".*ID=([^;]+).*", "\\1", df$attributes)
-  df$name <- sub(".*Name=([^;]+).*", "\\1", df$attributes)
+  df$name    <- sub(".*Name=([^;]+).*", "\\1", df$attributes)
+
   df$is_target <- grepl("TARGET_sMORF", df$attributes)
+
   df$seq_id <- contig_name
 
-  df$strand <- 1
+  df$strand <- ifelse(df$strand_chr == "+", 1, -1)
 
   df %>% select(seq_id, start, end, strand, feat_id, type, name, is_target)
 }
 
-# color palette
 cog_palette <- c("#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2","#7f7f7f",
                  "#bcbd22","#17becf","#aec7e8","#ffbb78","#98df8a","#ff9896","#c5b0d5","#c49c94",
                  "#f7b6d2","#c7c7c7","#dbdb8d","#9edae5")
+                                  
+smorf_dirs <- list.dirs(parent_path, recursive = FALSE, full.names = TRUE)
+smorf_dirs <- smorf_dirs[grepl("^SHD1_SM\\.100AA\\.", basename(smorf_dirs))]
 
-# Loop through each smORF directory
+cat("Found", length(smorf_dirs), "smORF directories\n")
+if (length(smorf_dirs) == 0) stop("No SHD1_SM.100AA.* directories found in: ", parent_path)
+
+n_done <- 0
+n_skipped_no_contigs <- 0
+n_skipped_no_gff <- 0
+n_skipped_no_genes <- 0
+skipped <- list()
+
 for (i in seq_along(smorf_dirs)) {
   base_path <- smorf_dirs[i]
   smorf_name <- basename(base_path)
-  cat("\nProcessing [", i, "/", length(smorf_dirs), "]:", smorf_name, "\n")
+  cat("\n[", i, "/", length(smorf_dirs), "] ", smorf_name, "\n", sep = "")
 
-  # Get contig directories
   contig_dirs <- list.dirs(base_path, recursive = FALSE, full.names = TRUE)
   contig_dirs <- contig_dirs[grepl("^D[0-9]+_contig_", basename(contig_dirs))]
 
   if (length(contig_dirs) == 0) {
-    cat("  ⚠ No contig directories found, skipping...\n")
+    cat("  ⚠ No contig directories found, skipping\n")
+    n_skipped_no_contigs <- n_skipped_no_contigs + 1
+    skipped[[smorf_name]] <- "no_contigs"
     next
   }
 
   all_genes <- NULL
+  gff_found_any <- FALSE
+
   for (d in contig_dirs) {
     gff <- list.files(d, pattern = "\\.gff$", full.names = TRUE)
     if (length(gff) == 0) next
+    gff_found_any <- TRUE
+
     contig_name <- basename(d)
     genes <- read_gff(gff[1], contig_name)
-    if (!is.null(genes)) all_genes <- rbind(all_genes, genes)
+    if (!is.null(genes) && nrow(genes) > 0) {
+      all_genes <- rbind(all_genes, genes)
+    }
+  }
+
+  if (!gff_found_any) {
+    cat("  ⚠ No GFF files found in contig dirs, skipping\n")
+    n_skipped_no_gff <- n_skipped_no_gff + 1
+    skipped[[smorf_name]] <- "no_gff"
+    next
   }
 
   if (is.null(all_genes) || nrow(all_genes) == 0) {
-    cat("  No genes found, skipping...\n")
+    cat("  ⚠ No genes parsed from GFFs, skipping\n")
+    n_skipped_no_genes <- n_skipped_no_genes + 1
+    skipped[[smorf_name]] <- "no_genes"
     next
   }
 
@@ -85,20 +104,25 @@ for (i in seq_along(smorf_dirs)) {
     summarise(start = min(start) - 500, end = max(end) + 500, .groups = "drop") %>%
     mutate(length = end - start)
 
-  all_cogs <- unique(all_genes$name)
-  cog_colors <- setNames(rep(cog_palette, length.out = length(all_cogs)), all_cogs)
-  cog_colors["Unknown"] <- "#D3D3D3"
-  cog_colors["TARGET_sMORF"] <- "#000000"
-
   all_genes <- all_genes %>%
-    mutate(gene_category = ifelse(is_target, "TARGET_sMORF", name))
+    mutate(gene_category = ifelse(is_target, paste0("TARGET (", name, ")"), name))
+
+  all_cats <- unique(all_genes$gene_category)
+
+  base_cats <- all_cats[!grepl("^TARGET \\(", all_cats)]
+  cog_colors <- setNames(rep(cog_palette, length.out = length(base_cats)), base_cats)
+
+  if ("Unknown" %in% names(cog_colors)) cog_colors["Unknown"] <- "#D3D3D3"
+
+  target_cats <- all_cats[grepl("^TARGET \\(", all_cats)]
+  if (length(target_cats) > 0) cog_colors[target_cats] <- "#000000"
 
   p <- gggenomes(genes = all_genes, seqs = seqs_data) +
     geom_seq() +
     geom_bin_label(size = 2) +
     geom_gene(aes(fill = gene_category)) +
     scale_fill_manual(values = cog_colors, name = "Annotation") +
-    ggtitle(basename(base_path)) +
+    ggtitle(smorf_name) +
     theme_minimal() +
     theme(
       legend.position = "right",
@@ -117,14 +141,27 @@ for (i in seq_along(smorf_dirs)) {
 
   plot_path_local <- file.path(base_path, "all_contigs_plot.jpg")
   ggsave(plot_path_local, plot = p, width = 14, height = 10, dpi = 300, limitsize = FALSE)
-  cat("  ✓ Saved to:", plot_path_local, "\n")
+  cat("  ✓ Saved:", plot_path_local, "\n")
 
   plot_path_all <- file.path(all_plots_dir, paste0(smorf_name, "_plot.jpg"))
   ggsave(plot_path_all, plot = p, width = 14, height = 10, dpi = 300, limitsize = FALSE)
-  cat("  ✓ Saved to:", plot_path_all, "\n")
+  cat("  ✓ Saved:", plot_path_all, "\n")
+
+  n_done <- n_done + 1
 }
 
-cat("\n==\n")
-cat("✓ All plots generated successfully!\n")
-cat("Total processed:", length(smorf_dirs), "smORFs\n")
-cat("=\n")
+cat("\n================ SUMMARY ================\n")
+cat("Total smORF dirs found:", length(smorf_dirs), "\n")
+cat("Plotted:", n_done, "\n")
+cat("Skipped (no contigs):", n_skipped_no_contigs, "\n")
+cat("Skipped (no GFF):", n_skipped_no_gff, "\n")
+cat("Skipped (no genes):", n_skipped_no_genes, "\n")
+
+if (length(skipped) > 0) {
+  cat("\nSkipped list:\n")
+  for (nm in names(skipped)) {
+    cat("  -", nm, ":", skipped[[nm]], "\n")
+  }
+}
+
+cat("\nDone.\n")
