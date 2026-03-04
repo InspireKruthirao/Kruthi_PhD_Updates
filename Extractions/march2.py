@@ -1,32 +1,5 @@
 #!/usr/bin/env python3
 """
-smORF Neighbourhood Analysis  -  v4
-====================================
-Folder analysed: SmORF_neighbourhoods_26_30_no_min_overlap
-
-New in v4 (supervisor feedback - Luis Pedro):
-  1. Right vs Left neighbour match comparison
-       Does the smORF share function more with RIGHT (downstream) or
-       LEFT (upstream) neighbour?  Confirms/investigates R3 > R2 observation.
-
-  2. Strand consistency check
-       After strand-normalisation (flip so upstream=left), what fraction of
-       smORFs have all three genes on the SAME strand?
-
-  3. Gene orientation / synteny context
-       Classify each neighbourhood by arrow pattern of (left, target, right):
-         ">>>"  all same strand as target
-         ">>>"  variations: "->>"  "<>>"  ">><"  etc.
-       Measure Coverage & Accuracy per orientation pattern to see if
-       co-directional genes predict function better.
-
-Core principles (unchanged from v3):
-  - One unique smORF directory = one smORF (no occurrence inflation)
-  - Majority-vote across all occurrences for representative COG/strand
-  - Coverage = eligible / total annotated smORFs
-  - Accuracy  = predicted_correct / eligible
-"""
-
 from pathlib import Path
 from collections import defaultdict, Counter
 import matplotlib.pyplot as plt
