@@ -1,26 +1,5 @@
 #!/usr/bin/env python3
 """
-smORF Neighbourhood Analysis  –  v3  (per-smORF evaluation)
-============================================================
-Key design principle (from supervisor feedback):
-  Each smORF directory = ONE unique smORF.
-  Rules are evaluated ONCE per smORF, not once per occurrence/GFF file.
-
-  Within a smORF directory we aggregate evidence across ALL occurrences
-  (majority vote on neighbour COGs), then make a single binary decision:
-    - was the smORF ELIGIBLE for this rule?  (bool)
-    - was the prediction CORRECT?          (bool, only meaningful if eligible)
-
-  Denominators for Coverage and Accuracy are therefore #unique_smORFs,
-  not #GFF occurrences.
-
-Other improvements (supervisor feedback):
-  - Coverage & Accuracy as primary metrics; Pareto frontier plot
-  - Per-frequency-bin breakdown (accuracy shifts with observation count)
-  - Strand-aware orientation: upstream always = left neighbour
-  - 80 % accuracy target highlighted on all plots
-"""
-
 from pathlib import Path
 from collections import defaultdict, Counter
 import matplotlib.pyplot as plt
