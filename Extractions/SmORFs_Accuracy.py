@@ -241,7 +241,7 @@ def main():
 
         print("Unannotated smORFs with annotated neighbours:")
         print(f"  • Has any annotated neighbour:   {unann_any:,}")
-        print(f"  • Upstream neighbour annotated:  {unann_up:,}")++
+        print(f"  • Upstream neighbour annotated:  {unann_up:,}")
         print(f"  • Downstream neighbour annotated: {unann_down:,}")
         print(f"  • Both neighbours same function: {unann_both_same:,}")
         print(f"  • Both annotated but different:  {unann_both_diff:,}\n")
