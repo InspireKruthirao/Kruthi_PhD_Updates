@@ -3,16 +3,26 @@
 from pathlib import Path
 from collections import Counter
 import csv
-import matplotlib.pyplot as plt
 
 # ---------------- CONFIG ----------------
 BASE = Path("/work/microbiome/users/kruthi")
-INPUT_DIR = BASE / "SmORF_neighbourhoods_26_30_no_min_overlap"
+
+RANGE_DIRS = [
+    "SmORF_neighbourhoods_1_5_no_min_overlap",
+    "SmORF_neighbourhoods_6_10_no_min_overlap",
+    "SmORF_neighbourhoods_11_15_no_min_overlap",
+    "SmORF_neighbourhoods_16_20_no_min_overlap",
+    "SmORF_neighbourhoods_21_25_no_min_overlap",
+    "SmORF_neighbourhoods_26_30_no_min_overlap",
+]
+
+OUTPUT_DIR = BASE / "22_April"
+OUTPUT_DIR.mkdir(exist_ok=True)
 
 # ---------------- HELPERS ----------------
 def parse_attrs(s):
     d = {}
-    for item in str(s).split(";"):
+    for item in s.split(";"):
         if "=" in item:
             k, v = item.split("=", 1)
             d[k.strip()] = v.strip()
@@ -21,7 +31,7 @@ def parse_attrs(s):
 def cog_label(name):
     if not name or not name.startswith("COG") or "-" not in name:
         return ""
-    return name.split("-")[-1]
+    return name.split("-")[-1][0]
 
 def read_gff(gff):
     feats = []
@@ -40,20 +50,21 @@ def read_gff(gff):
                 "is_target": attrs.get("target") == "1",
                 "cog": cog_label(attrs.get("Name", ""))
             })
-
     return feats
 
 # ---------------- CORE ----------------
-def process():
+def process(input_dir):
 
     results = []
-    decision_counts = Counter()
+    match_counts = Counter()
+    annotated_total = 0
 
-    for cluster in INPUT_DIR.iterdir():
+    for cluster in input_dir.iterdir():
         if not cluster.name.startswith("SHD1_SM"):
             continue
 
         votes = []
+        target_labels = []
 
         for gff in cluster.rglob("*.gff"):
             feats = read_gff(gff)
@@ -62,40 +73,39 @@ def process():
                 if not f["is_target"]:
                     continue
 
+                tc = f["cog"]
+                if tc:
+                    target_labels.append(tc)
+
                 up = feats[i-1]["cog"] if i > 0 else ""
                 down = feats[i+1]["cog"] if i < len(feats)-1 else ""
 
-                # 🔥 NEW LOGIC: use BOTH neighbours
                 if up:
                     votes.append(up)
                 if down:
                     votes.append(down)
 
+        # -------- TRUE LABEL --------
+        if target_labels:
+            true_label = Counter(target_labels).most_common(1)[0][0]
+        else:
+            true_label = "NA"
+
         total_votes = len(votes)
 
         if total_votes == 0:
-            result = {
-                "cluster": cluster.name,
-                "predicted": "NA",
-                "distribution": "-",
-                "confidence_%": 0,
-                "decision": "no_signal"
-            }
-            decision_counts["no_signal"] += 1
+            predicted = "NA"
+            distribution = "-"
+            confidence = 0
+            decision = "no_signal"
 
         else:
             counts = Counter(votes)
-
-            # percentages
-            dist = {k: round(v/total_votes*100, 2) for k,v in counts.items()}
-
-            # sort by frequency
             sorted_labels = counts.most_common()
 
             top_label, top_count = sorted_labels[0]
-            top_pct = dist[top_label]
+            confidence = round(top_count / total_votes * 100, 2)
 
-            # check tie
             if len(sorted_labels) > 1 and sorted_labels[0][1] == sorted_labels[1][1]:
                 predicted = f"{sorted_labels[0][0]}/{sorted_labels[1][0]}"
                 decision = "tie"
@@ -103,79 +113,93 @@ def process():
                 predicted = top_label
                 decision = "majority"
 
-            # build distribution string
-            dist_str = ", ".join([f"{k}:{v}%" for k,v in dist.items()])
+            top3 = sorted_labels[:3]
+            distribution = ", ".join(
+                [f"{k}:{round(v/total_votes*100,2)}%" for k, v in top3]
+            )
 
-            result = {
-                "cluster": cluster.name,
-                "predicted": predicted,
-                "distribution": dist_str,
-                "confidence_%": top_pct,
-                "decision": decision
-            }
+        # -------- MATCH --------
+        if true_label == "NA":
+            match = "NA"
+        else:
+            annotated_total += 1
 
-            decision_counts[decision] += 1
+            if predicted == "NA":
+                match = "NA"
+            elif "/" in predicted:
+                match = "PARTIAL" if true_label in predicted.split("/") else "NOT_MATCH"
+            elif predicted == true_label:
+                match = "MATCH"
+            else:
+                match = "NOT_MATCH"
 
-        results.append(result)
+            match_counts[match] += 1
 
-    return results, decision_counts
+        results.append({
+            "cluster": cluster.name,
+            "true_label": true_label,
+            "predicted": predicted,
+            "distribution": distribution,
+            "confidence_%": confidence,
+            "decision": decision,
+            "match": match
+        })
 
+    return results, match_counts, annotated_total
 
 # ---------------- SAVE ----------------
-def save_results(results):
+def save_results(results, folder):
 
-    with open("smorf_predictions.tsv", "w") as f:
+    out_file = OUTPUT_DIR / f"{folder}_predictions.tsv"
+
+    with open(out_file, "w") as f:
         writer = csv.DictWriter(f, fieldnames=results[0].keys(), delimiter="\t")
         writer.writeheader()
         writer.writerows(results)
 
-    print("Saved → smorf_predictions.tsv")
+    print(f"Saved → {out_file}")
 
+def save_summary(match_counts, annotated_total, folder):
 
-def save_summary(decision_counts):
+    out_file = OUTPUT_DIR / f"{folder}_accuracy.txt"
 
-    total = sum(decision_counts.values())
+    with open(out_file, "w") as f:
+        f.write(f"Accuracy Summary ({folder})\n")
+        f.write("=============================\n\n")
 
-    with open("summary.txt", "w") as f:
-        f.write("Summary\n========\n")
-        for k, v in decision_counts.items():
-            f.write(f"{k}: {v} ({v/total*100:.1f}%)\n")
+        for k, v in match_counts.items():
+            pct = round(v/annotated_total*100, 2)
+            f.write(f"{k}: {v} ({pct}%)\n")
 
-    print("Saved → summary.txt")
+        strict_acc = match_counts["MATCH"] / annotated_total * 100
+        f.write(f"\nStrict accuracy: {round(strict_acc,2)}%\n")
 
+        if "PARTIAL" in match_counts:
+            partial_acc = (match_counts["MATCH"] + match_counts["PARTIAL"]) / annotated_total * 100
+            f.write(f"Accuracy (with partial): {round(partial_acc,2)}%\n")
 
-# ---------------- PLOT ----------------
-def plot_stats(decision_counts):
-
-    plt.figure(figsize=(6,4))
-    plt.bar(decision_counts.keys(), decision_counts.values())
-    plt.title("Prediction Types")
-    plt.ylabel("Number of smORFs")
-    plt.tight_layout()
-    plt.show()
-
+    print(f"Saved → {out_file}")
 
 # ---------------- MAIN ----------------
 def main():
 
-    results, decision_counts = process()
+    for folder in RANGE_DIRS:
 
-    print("\nTotal smORFs:", len(results))
+        print(f"\nProcessing {folder}")
 
-    print("\nSample predictions:")
-    for r in results[:10]:
-        print(r)
+        input_dir = BASE / folder
 
-    print("\nSummary:")
-    total = sum(decision_counts.values())
-    for k, v in decision_counts.items():
-        print(f"{k}: {v} ({v/total*100:.1f}%)")
+        results, match_counts, annotated_total = process(input_dir)
 
-    save_results(results)
-    save_summary(decision_counts)
+        print(f"Annotated smORFs: {annotated_total}")
 
-    plot_stats(decision_counts)
+        for k, v in match_counts.items():
+            print(f"{k}: {v} ({v/annotated_total*100:.1f}%)")
 
+        save_results(results, folder)
+        save_summary(match_counts, annotated_total, folder)
+
+    print(f"\nAll outputs saved in → {OUTPUT_DIR}")
 
 if __name__ == "__main__":
     main()
