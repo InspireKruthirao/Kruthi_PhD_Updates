@@ -1,5 +1,7 @@
 # 🧬 Small Proteins Functional Analysis via Gene Synteny
 
+⭐ Star us on GitHub — it motivates us a lot!
+
 #add image here ( Tryhttps://github.com/matiassingers/awesome-readme?tab=readme-ov-file)
 
 This repository contains code, data, and documentation for my **PhD research** focused on identifying **functions of small proteins** using **gene synteny** and related computational analyses.
