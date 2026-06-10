@@ -84,23 +84,32 @@ def normalize(genes):
     return genes, False
 
 
-def extract_true_cog(name):
+def extract_true_cogs(name):
     """
-    Extract the first valid COG letter from the annotation string.
+    Return ALL valid COG categories.
 
     Examples:
-        ribosomal-J -> J
-        protein-KE -> K
-        unknown-S -> None
+        protein-K      -> {"K"}
+        protein-KE     -> {"K","E"}
+        protein-KES    -> {"K","E"}
+        protein-S      -> None
     """
     if not name or "-" not in name:
         return None
 
     cog_part = name.split("-", 1)[1]
-    valid = [c for c in cog_part if c in COG_DESC and c not in ("S", "R")]
+
+    valid = {
+        c
+        for c in cog_part
+        if c in COG_DESC
+        and c not in ("S", "R")
+    }
+
     if not valid:
         return None
-    return valid[0]
+
+    return valid
 
 
 def vote_one_occurrence(norm_genes, norm_target_idx):
@@ -141,7 +150,7 @@ def predict_one_smorf(smorf_dir):
     right_counts = Counter()
 
     target_name = "Unknown"
-    true_cog = None
+    true_cogs = None
     n_parsed = 0
 
     for gff_file in gff_files:
@@ -155,7 +164,7 @@ def predict_one_smorf(smorf_dir):
 
         if target_name == "Unknown":
             target_name = norm[norm_ti]["name"]
-            true_cog = extract_true_cog(target_name)
+            true_cogs = extract_true_cogs(target_name)
 
         if norm_ti > 0:
             left_counts[norm[norm_ti - 1]["name"]] += 1
@@ -205,12 +214,15 @@ def predict_one_smorf(smorf_dir):
     else:
         tier = "LOW"
 
-    correct = (true_cog is not None and true_cog == top_cat)
+    correct = (
+        true_cogs is not None
+        and top_cat in true_cogs
+    )
 
     return {
         "smorf_id": smorf_id,
         "current_annotation": target_name,
-        "true_cog": true_cog,
+        "true_cogs": ",".join(sorted(true_cogs)) if true_cogs else None,
         "correct": correct,
         "n_occurrences": n_parsed,
         "conservation_pct": round(conservation, 1),
@@ -229,7 +241,7 @@ def predict_one_smorf(smorf_dir):
 
 
 def print_validation_summary(results):
-    validated = [r for r in results if r["true_cog"] is not None]
+    validated = [r for r in results if r["true_cogs"] is not None]
     if not validated:
         print("\nVALIDATION")
         print("----------")
@@ -308,7 +320,7 @@ def main():
     cols = [
         "rank",
         "smorf_id",
-        "true_cog",
+        "true_cogs",
         "correct",
         "current_annotation",
         "n_occurrences",
@@ -332,7 +344,7 @@ def main():
             row = [
                 rank,
                 r["smorf_id"],
-                r["true_cog"],
+                r["true_cogs"],
                 r["correct"],
                 r["current_annotation"],
                 r["n_occurrences"],
