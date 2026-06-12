@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""
+Positionally-weighted genomic neighbourhood voting for smORF COG function prediction.
+Inputs : GFF files under <BIN_DIR>/<smorf_id>/<bin_id>/*.gff
+Outputs: Per-batch and combined TSVs with ranked predictions and confidence tiers.
+"""
 import re
 import sys
 from pathlib import Path
@@ -38,6 +43,7 @@ COG_DESC = {
     'V': 'Defense mechanisms',
 }
 
+# Genes at ±1 get full weight (1.0); decreases with distance; beyond ±5 ignored.
 POSITION_WEIGHTS = {
     -5: 0.2, -4: 0.4, -3: 0.6, -2: 0.8, -1: 1.0,
      1: 1.0,  2: 0.8,  3: 0.6,  4: 0.4,  5: 0.2,
@@ -45,6 +51,7 @@ POSITION_WEIGHTS = {
 
 
 def parse_gff(gff_file):
+    """Parse a GFF file; return list of gene dicts sorted by start position."""
     genes = []
     with open(gff_file) as f:
         for line in f:
@@ -69,6 +76,7 @@ def parse_gff(gff_file):
 
 
 def normalize(genes):
+    """Reverse gene order if smORF is on minus strand so positions are strand-consistent."""
     target_strand = next((g["strand"] for g in genes if g["is_target"]), "+")
     if target_strand == "-":
         return list(reversed(genes)), True
@@ -76,6 +84,7 @@ def normalize(genes):
 
 
 def extract_true_cogs(name):
+    """Extract known COG categories from an annotated smORF name; exclude S/R as uninformative."""
     if not name or "-" not in name:
         return None
     cog_part = name.split("-", 1)[1]
@@ -84,6 +93,10 @@ def extract_true_cogs(name):
 
 
 def vote_one_occurrence(norm_genes, norm_target_idx):
+    """
+    Weighted COG vote for one smORF occurrence.
+    Multi-category genes split their weight equally across categories.
+    """
     scores = defaultdict(float)
     for i, gene in enumerate(norm_genes):
         if gene["is_target"]:
@@ -105,6 +118,7 @@ def vote_one_occurrence(norm_genes, norm_target_idx):
 
 
 def predict_one_smorf(smorf_dir):
+    """Aggregate votes across all occurrences of one smORF and return a prediction dict."""
     smorf_id = smorf_dir.name
     gff_files = sorted(smorf_dir.glob("*/*.gff"))
     if not gff_files:
@@ -147,6 +161,7 @@ def predict_one_smorf(smorf_dir):
     top_cat, top_score = ranked[0]
     top3_str = " | ".join(f"{c}:{p}%" for c, p in ranked[:3])
 
+    # Smallest set of categories whose combined vote share reaches 90%
     cumsum = 0.0
     pred_set = []
     for cat, pct in ranked:
@@ -155,6 +170,7 @@ def predict_one_smorf(smorf_dir):
         if cumsum >= 90:
             break
 
+    # Conservation: how often the same gene appears immediately left/right across occurrences
     left_pct = (left_counts.most_common(1)[0][1] / n_parsed * 100) if left_counts else 0.0
     right_pct = (right_counts.most_common(1)[0][1] / n_parsed * 100) if right_counts else 0.0
     conservation = (left_pct + right_pct) / 2
@@ -206,6 +222,7 @@ TIER_ORDER = {"VERY HIGH": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
 
 def write_tsv(results, out_file):
+    """Write results to TSV sorted by tier, then vote score, then n_occurrences."""
     results_sorted = sorted(results, key=lambda r: (
         TIER_ORDER.get(r["confidence_tier"], 4),
         -r["vote_score_pct"],
@@ -227,6 +244,7 @@ def write_tsv(results, out_file):
 
 
 def run_one_dir(bin_dir):
+    """Run predictions for all SHD1_SM* smORFs in one batch directory."""
     if not bin_dir.exists():
         print(f"[skip] {bin_dir.name} — directory not found")
         return []
