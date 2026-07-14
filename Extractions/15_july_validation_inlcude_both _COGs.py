@@ -1,22 +1,9 @@
-#!/usr/bin/env python3
-"""
-Batch runner — runs the one-hot weighted vote prediction over ALL
-*_no_min_overlap directories found under a given root.
-
-Run as:
-    python3 run_all_no_min_overlap.py
-
-Edit ROOT_DIR below if needed.
-"""
-
 import re
 import sys
 from pathlib import Path
 from collections import defaultdict, Counter
 
-# ── EDIT THIS LINE ─────────────────────────────────────────────────────────────
-ROOT_DIR = Path("/work/microbiome/users/kruthi")
-# ──────────────────────────────────────────────────────────────────────────────
+bin_dir = Path("/work/microbiome/users/kruthi/SmORF_neighbourhoods_26_30_no_min_overlap")
 
 COG_DESC = {
     'C': 'Energy production and conversion',
@@ -111,7 +98,7 @@ def predict_one_smorf(smorf_dir):
     smorf_id = smorf_dir.name
     gff_files = sorted(smorf_dir.glob("*/*.gff"))
     if not gff_files:
-        return None
+        return None, "no_gff_files"
 
     total_scores = defaultdict(float)
     left_counts = Counter()
@@ -139,11 +126,13 @@ def predict_one_smorf(smorf_dir):
             total_scores[cat] += score
         n_parsed += 1
 
-    if n_parsed == 0 or not total_scores:
-        return None
+    if n_parsed == 0:
+        return None, "target_not_found_in_any_gff"
+    if not total_scores:
+        return None, "no_informative_neighbours"
     total_vote = sum(total_scores.values())
     if total_vote <= 0:
-        return None
+        return None, "zero_total_vote_weight"
 
     score_pct = {cat: round(v / total_vote * 100, 1) for cat, v in total_scores.items()}
     ranked = sorted(score_pct.items(), key=lambda x: -x[1])
@@ -175,7 +164,7 @@ def predict_one_smorf(smorf_dir):
 
     correct = (true_cogs is not None and top_cat in true_cogs)
 
-    return {
+    result = {
         "smorf_id": smorf_id,
         "current_annotation": target_name,
         "true_cogs": ",".join(sorted(true_cogs)) if true_cogs else None,
@@ -194,6 +183,7 @@ def predict_one_smorf(smorf_dir):
         "top_right_pct": round(right_pct, 1),
         "all_scores": " | ".join(f"{c}:{p}%" for c, p in ranked),
     }
+    return result, None
 
 
 def print_validation_summary(results, label=""):
@@ -254,6 +244,13 @@ def write_tsv(results, out_file):
     return results_sorted
 
 
+def write_failed_tsv(failed, out_file):
+    with out_file.open("w") as f:
+        f.write("smorf_id\treason\n")
+        for name, reason in failed:
+            f.write(f"{name}\t{reason}\n")
+
+
 def run_one_bin_dir(bin_dir):
     smorf_dirs = sorted([
         d for d in bin_dir.iterdir()
@@ -266,11 +263,11 @@ def run_one_bin_dir(bin_dir):
     print(f"  smORFs found : {len(smorf_dirs)}")
     results, failed, done = [], [], 0
     for smorf_dir in smorf_dirs:
-        result = predict_one_smorf(smorf_dir)
+        result, reason = predict_one_smorf(smorf_dir)
         if result:
             results.append(result)
         else:
-            failed.append(smorf_dir.name)
+            failed.append((smorf_dir.name, reason))
         done += 1
         if done % 100 == 0 or done == len(smorf_dirs):
             print(f"    {done:>5} / {len(smorf_dirs)}  predicted: {len(results)}  failed: {len(failed)}")
@@ -279,49 +276,41 @@ def run_one_bin_dir(bin_dir):
     write_tsv(results, out_file)
     print(f"  Saved → {out_file}")
     print(f"  Total predicted : {len(results)}  |  Failed/no data : {len(failed)}")
+
+    if failed:
+        failed_out = bin_dir / "smorf_failed_reasons.tsv"
+        write_failed_tsv(failed, failed_out)
+        print(f"  Failed reasons saved → {failed_out}")
+
+        print("\n  FAILED smORFs — reason breakdown:")
+        reason_counts = Counter(r for _, r in failed)
+        for reason, count in reason_counts.most_common():
+            print(f"    {reason:<30} : {count}")
+        print("\n  FAILED smORFs — detail:")
+        for name, reason in failed:
+            print(f"    {name:<25} {reason}")
+
     print_validation_summary(results, label=bin_dir.name)
     return results
 
 
 def main():
-    if not ROOT_DIR.exists():
-        print(f"ERROR: {ROOT_DIR} does not exist")
+    if not bin_dir.exists():
+        print(f"ERROR: {bin_dir} does not exist")
         sys.exit(1)
 
-    overlap_dirs = sorted([
-        d for d in ROOT_DIR.iterdir()
-        if d.is_dir() and "no_min_overlap" in d.name
-    ])
+    print("=" * 60)
+    print(f"Processing: {bin_dir.name}")
+    print("=" * 60)
 
-    if not overlap_dirs:
-        print(f"No *no_min_overlap* directories found under {ROOT_DIR}")
-        sys.exit(1)
+    results = run_one_bin_dir(bin_dir)
 
-    print(f"Root      : {ROOT_DIR}")
-    print(f"Matched directories ({len(overlap_dirs)}):")
-    for d in overlap_dirs:
-        print(f"  {d.name}")
-    print()
-
-    all_results = []
-    for bin_dir in overlap_dirs:
-        print(f"\n{'='*60}")
-        print(f"Processing: {bin_dir.name}")
-        print(f"{'='*60}")
-        results = run_one_bin_dir(bin_dir)
-        all_results.extend(results)
-
-    # ── Combined summary across all overlap dirs ──────────────────────────────
-    if all_results:
-        print(f"\n{'='*60}")
-        print(f"COMBINED SUMMARY — all no_min_overlap dirs")
-        print(f"{'='*60}")
-        print(f"Total smORFs predicted : {len(all_results)}")
-        print_validation_summary(all_results, label="ALL no_min_overlap dirs")
-
-        combined_out = ROOT_DIR / "smorf_onehot_predictions_ALL_no_min_overlap.tsv"
-        write_tsv(all_results, combined_out)
-        print(f"\nCombined TSV saved → {combined_out}")
+    if results:
+        print("\n" + "=" * 60)
+        print("SUMMARY")
+        print("=" * 60)
+        print(f"Total smORFs predicted : {len(results)}")
+        print_validation_summary(results, label=bin_dir.name)
 
 
 if __name__ == "__main__":
