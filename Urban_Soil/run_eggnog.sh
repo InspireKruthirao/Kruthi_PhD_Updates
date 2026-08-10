@@ -101,3 +101,6 @@ if [ ! -s "$ANN_FILE" ] || [ ! -s "$HITS_FILE" ]; then
 fi
 
 log "Finished sample: ${SAMPLE}"
+
+#RUN THE JOB WITH BELOW COMMAND
+mqsub --mem 20 -t 6 --cpus 12 --bg --segregated-log-file --name eggnog_array --array 58 -- bash eggnog_array.sh
