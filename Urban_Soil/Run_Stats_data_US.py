@@ -72,7 +72,7 @@ def main():
 
         print(
             f"{label:<18}"
-            f"{binned.get(label, 0)}"
+            f"{binned.get(label, 0):12,}"
         )
 
 
