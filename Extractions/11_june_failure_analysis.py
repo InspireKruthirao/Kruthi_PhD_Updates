@@ -1,314 +1,710 @@
 #!/usr/bin/env python3
+
 """
-Failure mode analysis for smORF neighbourhood voting predictions.
-Reads the combined TSV and breaks down WHY predictions went wrong.
+smORF neighbourhood prediction failure analysis.
+"""
 
-Run as:
-        python3 analyse_failures_11june2026.py
+from pathlib import Path
+from collections import defaultdict, Counter
 
-        Edit IN_FILE if needed.
+
+# Files
+IN_FILE = Path(
+    "/work/microbiome/users/kruthi/"
+    "smorf_onehot_predictions_ALL_no_min_overlap.tsv"
+)
+
+OUT_FILE = IN_FILE.parent / "failure_mode_analysis_11june2026.txt"
+
+
+# COG descriptions
+COG_DESC = {
+    "C": "Energy production and conversion",
+    "D": "Cell cycle control and division",
+    "E": "Amino acid transport and metabolism",
+    "F": "Nucleotide transport and metabolism",
+    "G": "Carbohydrate transport and metabolism",
+    "H": "Coenzyme transport and metabolism",
+    "I": "Lipid transport and metabolism",
+    "J": "Translation and ribosome",
+    "K": "Transcription",
+    "L": "DNA replication and repair",
+    "M": "Cell wall and membrane",
+    "N": "Cell motility",
+    "O": "Protein turnover and chaperones",
+    "P": "Inorganic ion transport and metabolism",
+    "Q": "Secondary metabolite biosynthesis",
+    "R": "General function prediction",
+    "S": "Function unknown",
+    "T": "Signal transduction",
+    "U": "Intracellular trafficking",
+    "V": "Defense mechanisms",
+}
+
+
+# Load TSV
+def load_tsv(path):
+
+    rows = []
+
+    with open(path) as f:
+
+        header = f.readline().strip().split("\t")
+
+        for line in f:
+
+            parts = line.strip().split("\t")
+
+            if len(parts) != len(header):
+                continue
+
+            rows.append(dict(zip(header, parts)))
+
+    return rows
+
+
+# Convert data types
+def parse_row(row):
+
+    row["n_occurrences"] = int(row["n_occurrences"])
+    row["conservation_pct"] = float(row["conservation_pct"])
+    row["vote_score_pct"] = float(row["vote_score_pct"])
+    row["correct"] = row["correct"] == "True"
+
+    if row["true_cogs"] == "None":
+        row["true_cogs"] = None
+
+    return row
+
+
+# Section heading
+def section(title, width=60):
+
+    return f"\n{'=' * width}\n{title}\n{'=' * width}"
+
+
+# Subsection heading
+def subsection(title):
+
+    return f"\n{title}\n{'-' * len(title)}"
+
+
+# Percentage
+def pct(n, total):
+
+    if total == 0:
+        return "n/a"
+
+    return f"{n / total * 100:.1f}%"
+
+
+# Median
+def median(values):
+
+    if not values:
+        return 0
+
+    values = sorted(values)
+
+    return values[len(values) // 2]
+
+
+def main():
+
+    print(f"Loading {IN_FILE} ...")
+
+    rows = [
+        parse_row(row)
+        for row in load_tsv(IN_FILE)
+    ]
+
+    validated = [
+        row
+        for row in rows
+        if row["true_cogs"] is not None
+    ]
+
+    correct_rows = [
+        row
+        for row in validated
+        if row["correct"]
+    ]
+
+    wrong_rows = [
+        row
+        for row in validated
+        if not row["correct"]
+    ]
+
+    lines = []
+    write = lines.append
+
+
+    # Summary
+    write(section("smORF PREDICTION FAILURE MODE ANALYSIS"))
+
+    write(f"Input file            : {IN_FILE}")
+    write(f"Total rows            : {len(rows):>8,}")
+    write(f"Validated             : {len(validated):>8,}")
+
+    write(
+        f"Correct               : "
+        f"{len(correct_rows):>8,}  "
+        f"({pct(len(correct_rows), len(validated))})"
+    )
+
+    write(
+        f"Wrong                 : "
+        f"{len(wrong_rows):>8,}  "
+        f"({pct(len(wrong_rows), len(validated))})"
+    )
+
+
+    # 1. Confusion
+    write(section("1. TOP COG MISPREDICTIONS"))
+
+    confusion = Counter()
+
+    for row in wrong_rows:
+
+        true_cogs = set(
+            row["true_cogs"].split(",")
+        )
+
+        predicted_cog = row["predicted_cog_cat"]
+
+        for true_cog in true_cogs:
+
+            confusion[
+                (true_cog, predicted_cog)
+            ] += 1
+
+    write(
+        f"\n{'True':>4}  "
+        f"{'Pred':>4}  "
+        f"{'N':>6}  "
+        f"{'% wrong':>8}  "
+        f"True function → Predicted function"
+    )
+
+    write("-" * 80)
+
+    for (
+        true_cog,
+        predicted_cog
+    ), n in confusion.most_common(20):
+
+        write(
+            f"{true_cog:>4}  "
+            f"{predicted_cog:>4}  "
+            f"{n:>6,}  "
+            f"{pct(n, len(wrong_rows)):>8}  "
+            f"{COG_DESC.get(true_cog, '?')[:30]:30} → "
+            f"{COG_DESC.get(predicted_cog, '?')[:30]}"
+        )
+
+
+    # 2. Confidence tier
+    write(section("2. FAILURE BY CONFIDENCE TIER"))
+
+    write(
+        f"{'Tier':<12}  "
+        f"{'Total':>7}  "
+        f"{'Wrong':>7}  "
+        f"{'Error rate':>10}  "
+        f"{'Median vote%':>13}  "
+        f"{'Median N':>10}  "
+        f"{'Median cons%':>13}"
+    )
+
+    write("-" * 85)
+
+    for tier in [
+        "VERY HIGH",
+        "HIGH",
+        "MEDIUM",
+        "LOW",
+    ]:
+
+        tier_rows = [
+            row
+            for row in validated
+            if row["confidence_tier"] == tier
+        ]
+
+        tier_wrong = [
+            row
+            for row in tier_rows
+            if not row["correct"]
+        ]
+
+        if not tier_rows:
+            continue
+
+        med_vote = median([
+            row["vote_score_pct"]
+            for row in tier_wrong
+        ])
+
+        med_occ = median([
+            row["n_occurrences"]
+            for row in tier_wrong
+        ])
+
+        med_cons = median([
+            row["conservation_pct"]
+            for row in tier_wrong
+        ])
+
+        write(
+            f"{tier:<12}  "
+            f"{len(tier_rows):>7,}  "
+            f"{len(tier_wrong):>7,}  "
+            f"{pct(len(tier_wrong), len(tier_rows)):>10}  "
+            f"{med_vote:>13.1f}  "
+            f"{med_occ:>10}  "
+            f"{med_cons:>13.1f}"
+        )
+
+
+    # 3. Vote score
+    write(section("3. VOTE SCORE VS ACCURACY"))
+
+    vote_bins = [
+        (0, 30),
+        (30, 40),
+        (40, 50),
+        (50, 60),
+        (60, 70),
+        (70, 80),
+        (80, 90),
+        (90, 101),
+    ]
+
+    write(
+        f"\n{'Vote score':>12}  "
+        f"{'Wrong':>8}  "
+        f"{'Correct':>8}  "
+        f"{'Error rate':>11}"
+    )
+
+    write("-" * 50)
+
+    for low, high in vote_bins:
+
+        wrong_subset = [
+            row
+            for row in wrong_rows
+            if low <= row["vote_score_pct"] < high
+        ]
+
+        correct_subset = [
+            row
+            for row in correct_rows
+            if low <= row["vote_score_pct"] < high
+        ]
+
+        total = (
+            len(wrong_subset)
+            + len(correct_subset)
+        )
+
+        label = f"{low}-{high - 1}%"
+
+        write(
+            f"{label:>12}  "
+            f"{len(wrong_subset):>8,}  "
+            f"{len(correct_subset):>8,}  "
+            f"{pct(len(wrong_subset), total):>11}"
+        )
+
+
+    # 4. Occurrence count
+    write(section("4. OCCURRENCE COUNT VS ACCURACY"))
+
+    occurrence_bins = [
+        (1, 2),
+        (2, 5),
+        (5, 10),
+        (10, 20),
+        (20, 50),
+        (50, 200),
+        (200, 10000),
+    ]
+
+    write(
+        f"\n{'Occurrences':>14}  "
+        f"{'Total':>7}  "
+        f"{'Correct':>8}  "
+        f"{'Accuracy':>9}"
+    )
+
+    write("-" * 50)
+
+    for low, high in occurrence_bins:
+
+        subset = [
+            row
+            for row in validated
+            if low <= row["n_occurrences"] < high
+        ]
+
+        if not subset:
+            continue
+
+        n_correct = sum(
+            1
+            for row in subset
+            if row["correct"]
+        )
+
+        label = f"{low}-{high - 1}"
+
+        write(
+            f"{label:>14}  "
+            f"{len(subset):>7,}  "
+            f"{n_correct:>8,}  "
+            f"{pct(n_correct, len(subset)):>9}"
+        )
+
+
+    # 5. Conservation
+    write(section("5. NEIGHBOURHOOD CONSERVATION VS ACCURACY"))
+
+    conservation_bins = [
+        (0, 25),
+        (25, 50),
+        (50, 75),
+        (75, 90),
+        (90, 101),
+    ]
+
+    write(
+        f"\n{'Conservation':>14}  "
+        f"{'Total':>7}  "
+        f"{'Correct':>8}  "
+        f"{'Accuracy':>9}"
+    )
+
+    write("-" * 50)
+
+    for low, high in conservation_bins:
+
+        subset = [
+            row
+            for row in validated
+            if low <= row["conservation_pct"] < high
+        ]
+
+        if not subset:
+            continue
+
+        n_correct = sum(
+            1
+            for row in subset
+            if row["correct"]
+        )
+
+        label = f"{low}-{high - 1}%"
+
+        write(
+            f"{label:>14}  "
+            f"{len(subset):>7,}  "
+            f"{n_correct:>8,}  "
+            f"{pct(n_correct, len(subset)):>9}"
+        )
+
+
+    # 6. Multi-COG
+    write(section("6. MULTI-COG ANNOTATIONS"))
+
+    single_cog = [
+        row
+        for row in validated
+        if "," not in row["true_cogs"]
+    ]
+
+    multi_cog = [
+        row
+        for row in validated
+        if "," in row["true_cogs"]
+    ]
+
+    single_correct = sum(
+        1
+        for row in single_cog
+        if row["correct"]
+    )
+
+    multi_correct = sum(
+        1
+        for row in multi_cog
+        if row["correct"]
+    )
+
+    write(
+        f"\nSingle-COG : "
+        f"{len(single_cog):>7,}  "
+        f"accuracy = "
+        f"{pct(single_correct, len(single_cog))}"
+    )
+
+    write(
+        f"Multi-COG  : "
+        f"{len(multi_cog):>7,}  "
+        f"accuracy = "
+        f"{pct(multi_correct, len(multi_cog))}"
+    )
+
+    if multi_cog:
+
+        write(
+            subsection(
+                "Common multi-COG combinations"
+            )
+        )
+
+        multi_wrong = [
+            row
+            for row in multi_cog
+            if not row["correct"]
+        ]
+
+        combinations = Counter(
+            row["true_cogs"]
+            for row in multi_wrong
+        )
+
+        for combination, n in combinations.most_common(10):
+
+            write(
+                f"{combination:10}  "
+                f"N={n:>5,}"
+            )
+
+
+    # 7. Accuracy by COG
+    write(section("7. ACCURACY BY TRUE COG CATEGORY"))
+
+    cog_stats = defaultdict(
+        lambda: {
+            "total": 0,
+            "correct": 0,
+        }
+    )
+
+    for row in validated:
+
+        for cog in row["true_cogs"].split(","):
+
+            cog_stats[cog]["total"] += 1
+
+            if row["correct"]:
+                cog_stats[cog]["correct"] += 1
+
+    ranked_cogs = sorted(
+        cog_stats.items(),
+        key=lambda x:
+            x[1]["correct"]
+            / x[1]["total"],
+    )
+
+    write(
+        f"\n{'COG':>4}  "
+        f"{'Total':>7}  "
+        f"{'Correct':>8}  "
+        f"{'Accuracy':>9}  "
+        f"Function"
+    )
+
+    write("-" * 75)
+
+    for cog, stats in ranked_cogs:
+
+        accuracy = (
+            stats["correct"]
+            / stats["total"]
+        )
+
+        write(
+            f"{cog:>4}  "
+            f"{stats['total']:>7,}  "
+            f"{stats['correct']:>8,}  "
+            f"{accuracy:>8.1%}  "
+            f"{COG_DESC.get(cog, '?')}"
+        )
+
+
+    # 8. Near misses
+    write(section("8. NEAR-MISS ANALYSIS"))
+
+    near_misses = []
+
+    for row in wrong_rows:
+
+        top3_string = row.get(
+            "top3_candidates",
+            "",
+        )
+
+        true_cogs = set(
+            row["true_cogs"].split(",")
+        )
+
+        top3_cogs = set()
+
+        for candidate in top3_string.split("|"):
+
+            if not candidate.strip():
+                continue
+
+            cog = (
+                candidate
+                .split(":")[0]
+                .strip()
+            )
+
+            top3_cogs.add(cog)
+
+        if true_cogs & top3_cogs:
+            near_misses.append(row)
+
+    hard_misses = (
+        len(wrong_rows)
+        - len(near_misses)
+    )
+
+    write(
+        f"\nWrong predictions : "
+        f"{len(wrong_rows):>7,}"
+    )
+
+    write(
+        f"Near misses       : "
+        f"{len(near_misses):>7,}  "
+        f"({pct(len(near_misses), len(wrong_rows))})"
+    )
+
+    write(
+        f"Hard misses       : "
+        f"{hard_misses:>7,}  "
+        f"({pct(hard_misses, len(wrong_rows))})"
+    )
+
+
+    # 9. Examples
+    write(section("9. EXAMPLE smORFs"))
+
+
+    def example_rows(subset, n=5):
+
+        examples = []
+
+        for row in subset[:n]:
+
+            examples.append(
+                f"{row['smorf_id']:<30}  "
+                f"true={row['true_cogs']:<6}  "
+                f"pred={row['predicted_cog_cat']}  "
+                f"vote={row['vote_score_pct']}%  "
+                f"N={row['n_occurrences']}  "
+                f"cons={row['conservation_pct']}%  "
+                f"tier={row['confidence_tier']}"
+            )
+
+        return "\n".join(examples)
+
+
+    high_confidence_wrong = sorted(
+        [
+            row
+            for row in wrong_rows
+            if row["confidence_tier"]
+            in ("VERY HIGH", "HIGH")
+        ],
+        key=lambda row:
+            -row["vote_score_pct"],
+    )
+
+    write(
+        subsection(
+            "High-confidence wrong"
+        )
+    )
+
+    write(
+        example_rows(
+            high_confidence_wrong
+        )
+    )
+
+
+    rare_wrong = sorted(
+        [
+            row
+            for row in wrong_rows
+            if row["n_occurrences"] <= 3
+        ],
+        key=lambda row:
+            -row["vote_score_pct"],
+    )
+
+    write(
+        subsection(
+            "Low-occurrence wrong"
+        )
+    )
+
+    write(
+        example_rows(
+            rare_wrong
+        )
+    )
+
+
+    write(
+        subsection(
+            "Near misses"
+        )
+    )
+
+    write(
+        example_rows(
+            near_misses
+        )
+    )
+
+
+    # Failure modes
+    write(section("SUMMARY OF FAILURE MODES"))
+
+    write(
         """
+1. NEIGHBOURHOOD AMBIGUITY
 
-        from pathlib import Path
-        from collections import defaultdict, Counter
+2. OPERON / GENE CLUSTER BIAS
 
-        # ── EDIT IF NEEDED ─────────────────────────────────────────────────────────────
-        IN_FILE = Path("/work/microbiome/users/kruthi/smorf_onehot_predictions_ALL_no_min_overlap.tsv")
-        OUT_FILE = IN_FILE.parent / "failure_mode_analysis_11june2026.txt"
-        # ──────────────────────────────────────────────────────────────────────────────
+3. LOW OCCURRENCE COUNT
 
-        COG_DESC = {
-                    'C': 'Energy production and conversion',
-                        'D': 'Cell cycle control and division',
-                            'E': 'Amino acid transport and metabolism',
-                                'F': 'Nucleotide transport and metabolism',
-                                    'G': 'Carbohydrate transport and metabolism',
-                                        'H': 'Coenzyme transport and metabolism',
-                                            'I': 'Lipid transport and metabolism',
-                                                'J': 'Translation and ribosome',
-                                                    'K': 'Transcription',
-                                                        'L': 'DNA replication and repair',
-                                                            'M': 'Cell wall and membrane',
-                                                                'N': 'Cell motility',
-                                                                    'O': 'Protein turnover and chaperones',
-                                                                        'P': 'Inorganic ion transport and metabolism',
-                                                                            'Q': 'Secondary metabolite biosynthesis',
-                                                                                'R': 'General function prediction',
-                                                                                    'S': 'Function unknown',
-                                                                                        'T': 'Signal transduction',
-                                                                                            'U': 'Intracellular trafficking',
-                                                                                                'V': 'Defense mechanisms',
-                                                                                                }
+4. CONSERVATION WITHOUT SPECIFICITY
+
+5. MULTI-COG ANNOTATIONS
+
+6. CATEGORY IMBALANCE
+"""
+    )
 
 
-        def load_tsv(path):
-                rows = []
-                    with open(path) as f:
-                                header = f.readline().strip().split("\t")
-                                        for line in f:
-                                                        parts = line.strip().split("\t")
-                                                                    if len(parts) != len(header):
-                                                                                    continue
-                                                                                                rows.append(dict(zip(header, parts)))
-                                                                                                    return rows
+    # Save
+    output = "\n".join(lines)
+
+    print(output)
+
+    with OUT_FILE.open("w") as f:
+        f.write(output)
+
+    print(f"\nSaved → {OUT_FILE}")
 
 
-                                                                                                def parse_row(r):
-                                                                                                        """Coerce types for numeric fields."""
-                                                                                                            r["n_occurrences"]  = int(r["n_occurrences"])
-                                                                                                                r["conservation_pct"] = float(r["conservation_pct"])
-                                                                                                                    r["vote_score_pct"] = float(r["vote_score_pct"])
-                                                                                                                        r["correct"] = r["correct"] == "True"
-                                                                                                                            r["true_cogs"] = r["true_cogs"] if r["true_cogs"] != "None" else None
-                                                                                                                                return r
-
-
-                                                                                                                            def section(title, width=60):
-                                                                                                                                    return f"\n{'='*width}\n{title}\n{'='*width}"
-
-
-                                                                                                                                def subsection(title):
-                                                                                                                                        return f"\n{title}\n{'-'*len(title)}"
-
-
-                                                                                                                                    def pct(n, total):
-                                                                                                                                            return f"{n/total*100:.1f}%" if total else "n/a"
-
-
-                                                                                                                                        def main():
-                                                                                                                                                print(f"Loading {IN_FILE} ...")
-                                                                                                                                                    rows = [parse_row(r) for r in load_tsv(IN_FILE)]
-                                                                                                                                                        validated = [r for r in rows if r["true_cogs"] is not None]
-                                                                                                                                                            wrong     = [r for r in validated if not r["correct"]]
-                                                                                                                                                                right     = [r for r in validated if r["correct"]]
-
-                                                                                                                                                                    lines = []
-                                                                                                                                                                        w = lines.append
-
-                                                                                                                                                                            w(section("smORF PREDICTION FAILURE MODE ANALYSIS"))
-                                                                                                                                                                                w(f"Input  : {IN_FILE}")
-                                                                                                                                                                                    w(f"Total rows          : {len(rows):>8,}")
-                                                                                                                                                                                        w(f"Validated (has true COG) : {len(validated):>8,}")
-                                                                                                                                                                                            w(f"Correct              : {len(right):>8,}  ({pct(len(right), len(validated))})")
-                                                                                                                                                                                                w(f"Wrong                : {len(wrong):>8,}  ({pct(len(wrong), len(validated))})")
-
-                                                                                                                                                                                                    # ── 1. CONFUSION: what did we predict INSTEAD of the true COG? ──────────
-                                                                                                                                                                                                        w(section("1. CONFUSION MATRIX — top mispredictions"))
-                                                                                                                                                                                                            w("For wrong predictions: true_cog → predicted_cog (count, % of wrong)")
-                                                                                                                                                                                                                confusion = Counter()
-                                                                                                                                                                                                                    for r in wrong:
-                                                                                                                                                                                                                                true_set = set(r["true_cogs"].split(","))
-                                                                                                                                                                                                                                        pred = r["predicted_cog_cat"]
-                                                                                                                                                                                                                                                for t in true_set:
-                                                                                                                                                                                                                                                                confusion[(t, pred)] += 1
-
-                                                                                                                                                                                                                                                                    w(f"\n{'True':>4}  {'Pred':>4}  {'N':>6}  {'% wrong':>8}  True function → Predicted function")
-                                                                                                                                                                                                                                                                        w("-" * 80)
-                                                                                                                                                                                                                                                                            for (t, p), n in confusion.most_common(20):
-                                                                                                                                                                                                                                                                                        w(f"  {t:>2}  →  {p:>2}  {n:>6,}  {pct(n, len(wrong)):>8}  "
-                                                                                                                                                                                                                                                                                                          f"{COG_DESC.get(t,'?')[:30]:30}  →  {COG_DESC.get(p,'?')[:30]}")
-
-                                                                                                                                                                                                                                                                                            # ── 2. FAILURE BY TIER ───────────────────────────────────────────────────
-                                                                                                                                                                                                                                                                                                w(section("2. FAILURE BREAKDOWN BY CONFIDENCE TIER"))
-                                                                                                                                                                                                                                                                                                    w(f"{'Tier':<12}  {'Total':>7}  {'Wrong':>7}  {'Error rate':>10}  "
-                                                                                                                                                                                                                                                                                                                  f"{'Median vote%':>13}  {'Median N_occ':>13}  {'Median conserv%':>16}")
-                                                                                                                                                                                                                                                                                                        w("-" * 90)
-                                                                                                                                                                                                                                                                                                            for tier in ["VERY HIGH", "HIGH", "MEDIUM", "LOW"]:
-                                                                                                                                                                                                                                                                                                                        t_rows  = [r for r in validated if r["confidence_tier"] == tier]
-                                                                                                                                                                                                                                                                                                                                t_wrong = [r for r in t_rows if not r["correct"]]
-                                                                                                                                                                                                                                                                                                                                        if not t_rows:
-                                                                                                                                                                                                                                                                                                                                                    continue
-                                                                                                                                                                                                                                                                                                                                                            med_vote  = sorted(r["vote_score_pct"]   for r in t_wrong)
-                                                                                                                                                                                                                                                                                                                                                                    med_n     = sorted(r["n_occurrences"]     for r in t_wrong)
-                                                                                                                                                                                                                                                                                                                                                                            med_cons  = sorted(r["conservation_pct"]  for r in t_wrong)
-                                                                                                                                                                                                                                                                                                                                                                                    mid = lambda lst: lst[len(lst)//2] if lst else 0
-                                                                                                                                                                                                                                                                                                                                                                                            w(f"{tier:<12}  {len(t_rows):>7,}  {len(t_wrong):>7,}  "
-                                                                                                                                                                                                                                                                                                                                                                                                              f"{pct(len(t_wrong), len(t_rows)):>10}  "
-                                                                                                                                                                                                                                                                                                                                                                                                                        f"{mid(med_vote):>13.1f}  {mid(med_n):>13}  {mid(med_cons):>16.1f}")
-
-                                                                                                                                                                                                                                                                                                                                                                                                # ── 3. VOTE SCORE DISTRIBUTION OF WRONG PREDICTIONS ─────────────────────
-                                                                                                                                                                                                                                                                                                                                                                                                    w(section("3. VOTE SCORE DISTRIBUTION — wrong predictions"))
-                                                                                                                                                                                                                                                                                                                                                                                                        w("Does a high vote score mean the model was confidently wrong?")
-                                                                                                                                                                                                                                                                                                                                                                                                            bins = [(0,30),(30,40),(40,50),(50,60),(60,70),(70,80),(80,90),(90,101)]
-                                                                                                                                                                                                                                                                                                                                                                                                                w(f"\n{'Vote score':>12}  {'N wrong':>8}  {'N right':>8}  {'Error rate':>11}  {'Cumul wrong%':>13}")
-                                                                                                                                                                                                                                                                                                                                                                                                                    w("-" * 60)
-                                                                                                                                                                                                                                                                                                                                                                                                                        cumul = 0
-                                                                                                                                                                                                                                                                                                                                                                                                                            for lo, hi in bins:
-                                                                                                                                                                                                                                                                                                                                                                                                                                    w_sub = [r for r in wrong  if lo <= r["vote_score_pct"] < hi]
-                                                                                                                                                                                                                                                                                                                                                                                                                                            r_sub = [r for r in right  if lo <= r["vote_score_pct"] < hi]
-                                                                                                                                                                                                                                                                                                                                                                                                                                                    total = len(w_sub) + len(r_sub)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                            cumul += len(w_sub)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                    label = f"{lo}-{hi-1}%"
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                            w(f"{label:>12}  {len(w_sub):>8,}  {len(r_sub):>8,}  "
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              f"{pct(len(w_sub), total):>11}  {pct(cumul, len(wrong)):>13}")
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                # ── 4. OCCURRENCE COUNT vs ACCURACY ─────────────────────────────────────
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    w(section("4. OCCURRENCE COUNT vs ACCURACY"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        w("Are rare smORFs (few genomic copies) harder to predict?")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            occ_bins = [(1,2),(2,5),(5,10),(10,20),(20,50),(50,200),(200,10000)]
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                w(f"\n{'N_occurrences':>14}  {'Total':>7}  {'Correct':>8}  {'Accuracy':>9}")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    w("-" * 50)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        for lo, hi in occ_bins:
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    sub = [r for r in validated if lo <= r["n_occurrences"] < hi]
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            if not sub:
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        continue
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                corr = sum(1 for r in sub if r["correct"])
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        label = f"{lo}–{hi-1}"
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                w(f"{label:>14}  {len(sub):>7,}  {corr:>8,}  {pct(corr,len(sub)):>9}")
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    # ── 5. CONSERVATION vs ACCURACY ─────────────────────────────────────────
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        w(section("5. NEIGHBOURHOOD CONSERVATION vs ACCURACY"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            w("Does high conservation of immediate neighbours predict correctness?")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                cons_bins = [(0,25),(25,50),(50,75),(75,90),(90,101)]
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    w(f"\n{'Conservation%':>14}  {'Total':>7}  {'Correct':>8}  {'Accuracy':>9}")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        w("-" * 50)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            for lo, hi in cons_bins:
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        sub = [r for r in validated if lo <= r["conservation_pct"] < hi]
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                if not sub:
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            continue
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    corr = sum(1 for r in sub if r["correct"])
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            label = f"{lo}–{hi-1}%"
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    w(f"{label:>14}  {len(sub):>7,}  {corr:>8,}  {pct(corr,len(sub)):>9}")
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        # ── 6. MULTI-COG TRUE LABELS ─────────────────────────────────────────────
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            w(section("6. MULTI-COG ANNOTATIONS"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                w("smORFs annotated with multiple COG categories — is prediction harder?")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    single = [r for r in validated if "," not in r["true_cogs"]]
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        multi  = [r for r in validated if "," in  r["true_cogs"]]
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            s_corr = sum(1 for r in single if r["correct"])
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                m_corr = sum(1 for r in multi  if r["correct"])
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    w(f"\n  Single-COG annotations : {len(single):>7,}  accuracy = {pct(s_corr, len(single))}")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        w(f"  Multi-COG  annotations : {len(multi):>7,}  accuracy = {pct(m_corr, len(multi))}")
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            if multi:
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    w(subsection("  Most common multi-COG combinations (wrong predictions only)"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            multi_wrong = [r for r in multi if not r["correct"]]
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    combo_ctr = Counter(r["true_cogs"] for r in multi_wrong)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            for combo, n in combo_ctr.most_common(10):
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            cats = combo.split(",")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        desc = " + ".join(COG_DESC.get(c, "?") for c in cats)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    w(f"    {combo:10}  N={n:>5,}  {desc[:60]}")
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        # ── 7. WHICH TRUE COGs ARE HARDEST TO PREDICT? ──────────────────────────
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            w(section("7. ACCURACY BY TRUE COG CATEGORY"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                w("Which functional categories does the method struggle with most?")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    cog_stats = defaultdict(lambda: {"total": 0, "correct": 0})
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        for r in validated:
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    for c in r["true_cogs"].split(","):
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    cog_stats[c]["total"]   += 1
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                cog_stats[c]["correct"] += 1 if r["correct"] else 0
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ranked = sorted(cog_stats.items(), key=lambda x: x[1]["correct"]/x[1]["total"])
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        w(f"\n{'COG':>4}  {'Total':>7}  {'Correct':>8}  {'Accuracy':>9}  Function")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            w("-" * 75)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                for cog, s in ranked:
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        acc = s["correct"] / s["total"]
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                w(f"  {cog:>2}  {s['total']:>7,}  {s['correct']:>8,}  {acc:>8.1%}  {COG_DESC.get(cog,'?')}")
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    # ── 8. CASES WHERE PRED IS IN TOP3 BUT NOT TOP1 ──────────────────────────
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        w(section("8. 'NEAR MISS' ANALYSIS"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            w("Wrong top-1 predictions where the true COG appears in the top-3 candidates.")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                near_miss = []
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    for r in wrong:
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                top3_str = r.get("top3_candidates", "")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        true_set = set(r["true_cogs"].split(","))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                pred_cats_in_top3 = set(part.split(":")[0].strip() for part in top3_str.split("|"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        if true_set & pred_cats_in_top3:
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        near_miss.append(r)
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            w(f"\n  Wrong predictions     : {len(wrong):>7,}")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                w(f"  Near misses (true COG in top-3) : {len(near_miss):>7,}  ({pct(len(near_miss), len(wrong))} of wrong)")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    w(f"  Hard misses (true COG not in top-3) : {len(wrong)-len(near_miss):>7,}  ({pct(len(wrong)-len(near_miss), len(wrong))} of wrong)")
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        w(subsection("  Near-miss confusion (what beat the true COG)"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            nm_confusion = Counter()
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                for r in near_miss:
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            true_set = set(r["true_cogs"].split(","))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    pred = r["predicted_cog_cat"]
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            for t in true_set:
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            nm_confusion[(t, pred)] += 1
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                w(f"\n{'True':>4}  {'Pred (beat it)':>4}  {'N':>6}  True function → What beat it")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    w("-" * 75)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        for (t, p), n in nm_confusion.most_common(15):
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    w(f"  {t:>2}  →  {p:>2}  {n:>6,}  "
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      f"{COG_DESC.get(t,'?')[:30]:30}  →  {COG_DESC.get(p,'?')}")
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        # ── 9. SPECIFIC smORF EXAMPLES OF EACH FAILURE TYPE ─────────────────────
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            w(section("9. EXAMPLE smORFs PER FAILURE TYPE"))
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                def example_rows(subset, n=3):
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            out = []
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    for r in subset[:n]:
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    out.append(
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            f"    {r['smorf_id']:<30}  true={r['true_cogs']:<6}  "
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            f"pred={r['predicted_cog_cat']}  "
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            f"vote={r['vote_score_pct']}%  N={r['n_occurrences']}  "
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            f"cons={r['conservation_pct']}%  tier={r['confidence_tier']}"
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        )
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                return "\n".join(out)
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    # High-confidence wrong
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        hc_wrong = sorted(
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                [r for r in wrong if r["confidence_tier"] in ("VERY HIGH", "HIGH")],
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        key=lambda r: -r["vote_score_pct"]
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            )
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                w(subsection("  a) High-confidence wrong (VERY HIGH / HIGH tier, wrong)"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    w(example_rows(hc_wrong, 5))
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        # Low-occurrence wrong
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            lo_wrong = sorted(
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            [r for r in wrong if r["n_occurrences"] <= 3],
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    key=lambda r: -r["vote_score_pct"]
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        )
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                w(subsection("  b) Very rare smORFs (≤3 occurrences) that went wrong"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    w(example_rows(lo_wrong, 5))
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        # Near-miss examples
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            w(subsection("  c) Near misses (true COG was 2nd or 3rd)"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                w(example_rows(near_miss[:5], 5))
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    # ── SUMMARY ─────────────────────────────────────────────────────────────
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        w(section("SUMMARY OF FAILURE MODES"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            w("""
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            Key failure scenarios identified:
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            1. NEIGHBOURHOOD AMBIGUITY
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               smORFs in genomic contexts where the surrounding genes belong to many
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  different COG categories — the vote signal is diluted or dominated by
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     unrelated functional neighbours.
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     2. OPERON / GENE CLUSTER BIAS
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        If a smORF sits inside a large operon (e.g. ribosomal, flagellar),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           all neighbours vote for the same category regardless of the smORF's
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              true function — artificially inflating that category's score.
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              3. LOW OCCURRENCE COUNT
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 smORFs with very few genomic copies give the method little data to
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    aggregate across. A single atypical genomic context can dominate.
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    4. CONSERVATION WITHOUT SPECIFICITY
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       High neighbour conservation (always flanked by same genes) does not
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          guarantee those neighbours reflect the smORF's function — it may
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             just reflect tight gene synteny in a conserved operon.
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             5. MULTI-FUNCTION ANNOTATIONS
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                smORFs annotated with multiple COG categories (e.g. KE) are harder
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   to evaluate — the method picks one category, which may be the less
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      prominent role.
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      6. CATEGORY IMBALANCE
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         Some COG categories (J, K, L) are very common in microbial genomes;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            rare categories (N, D, U) are underrepresented in neighbourhoods,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               making their signal weaker and easier to swamp by common categories.
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               """)
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   output = "\n".join(lines)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       print(output)
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           with OUT_FILE.open("w") as f:
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   f.write(output)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       print(f"\nSaved → {OUT_FILE}")
-
-
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       if __name__ == "__main__":
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           main()
+if __name__ == "__main__":
+    main()
