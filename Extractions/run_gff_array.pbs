@@ -1,0 +1,24 @@
+#!/bin/bash -l
+
+#PBS -N smorf_make_gff
+#PBS -l select=1:ncpus=1:mem=16gb
+#PBS -l walltime=48:00:00
+#PBS -q cpu_batch_exec
+#PBS -j oe
+
+source ~/.bashrc
+conda activate kruthi
+
+ROOT="/work/microbiome/users/kruthi"
+LIST="${ROOT}/smorf_gff_folders.txt"
+
+FOLDER=$(sed -n "${PBS_ARRAY_INDEX}p" "${LIST}")
+
+echo "Processing: ${FOLDER}"
+echo "Started: $(date)"
+echo "Host: $(hostname)"
+
+python3 "${ROOT}/create_gff_from_neighborhoods.py" \
+    "${ROOT}/${FOLDER}"
+
+echo "Finished: $(date)"
