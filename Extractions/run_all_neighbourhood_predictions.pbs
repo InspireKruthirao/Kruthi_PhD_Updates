@@ -1,0 +1,66 @@
+#!/bin/bash -l
+
+#PBS -N smorf_predictions
+#PBS -l select=1:ncpus=110:mem=220gb
+#PBS -l walltime=48:00:00
+#PBS -q cpu_batch_exec
+#PBS -j oe
+#PBS -o /work/microbiome/users/kruthi/smorf_predictions_all.log
+
+set -euo pipefail
+
+source ~/.bashrc
+conda activate kruthi
+
+ROOT="/work/microbiome/users/kruthi"
+LIST="${ROOT}/smorf_gff_folders.txt"
+SCRIPT="${ROOT}/run_neighbourhood_prediction.py"
+
+echo "=========================================="
+echo "smORF neighbourhood prediction"
+echo "Started: $(date)"
+echo "Host: $(hostname)"
+echo "CPUs requested: 110"
+echo "=========================================="
+
+echo ""
+echo "Bins:"
+cat "${LIST}"
+
+echo ""
+echo "Starting parallel analysis..."
+echo ""
+
+cat "${LIST}" | xargs -P 67 -I {} bash -c '
+    FOLDER="{}"
+
+    echo "Starting ${FOLDER}"
+
+    python3 "'"${SCRIPT}"'" \
+        "'"${ROOT}"'/${FOLDER}" \
+        > "'"${ROOT}"'/${FOLDER}/prediction_run.log" \
+        2>&1
+
+    echo "Finished ${FOLDER}"
+'
+
+echo ""
+echo "=========================================="
+echo "All bins finished"
+echo "Finished: $(date)"
+echo "=========================================="
+
+echo ""
+echo "Checking outputs..."
+
+while read -r FOLDER
+do
+    OUTPUT="${ROOT}/${FOLDER}/smorf_onehot_predictions_validation.tsv"
+
+    if [[ -s "${OUTPUT}" ]]
+    then
+        echo "OK     ${FOLDER}"
+    else
+        echo "MISSING ${FOLDER}"
+    fi
+done < "${LIST}"
