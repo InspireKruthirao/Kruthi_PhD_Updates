@@ -1,0 +1,91 @@
+#!/bin/bash -l
+
+#PBS -N US95_emapper
+#PBS -l select=1:ncpus=16:mem=128gb
+#PBS -l walltime=48:00:00
+#PBS -q cpu_batch_exec
+#PBS -j oe
+#PBS -m abe
+
+set -euo pipefail
+
+# ============================================================
+# Urban Soil 95NT eggNOG annotation transfer
+# ============================================================
+
+WORKDIR="/work/microbiome/users/kruthi/intermediate_results/urban_soil/Prodigal"
+
+cd "$WORKDIR"
+
+
+# ============================================================
+# Python environment
+# ============================================================
+
+# Use Kruthi's existing conda environment directly.
+# This avoids relying on conda activation inside PBS.
+export PATH="/home/n12228516/.conda/envs/kruthi/bin:$PATH"
+
+
+# ============================================================
+# Job information
+# ============================================================
+
+echo "=================================================="
+echo "Urban Soil 95NT eggNOG annotation transfer"
+echo "=================================================="
+echo "Job ID:         $PBS_JOBID"
+echo "Host:           $(hostname)"
+echo "Start:          $(date)"
+echo "Working dir:    $(pwd)"
+echo "CPUs requested: 16"
+echo "Memory:         128 GB"
+echo "=================================================="
+echo
+
+
+# ============================================================
+# Environment checks
+# ============================================================
+
+echo "Python executable:"
+which python3
+
+echo
+
+echo "Python version:"
+python3 --version
+
+echo
+
+echo "Python environment:"
+python3 -c "import sys; print(sys.prefix)"
+
+echo
+
+echo "NumPy version:"
+python3 -c "import numpy; print(numpy.__version__)"
+
+echo
+
+
+# ============================================================
+# Run annotation-transfer script
+# ============================================================
+
+echo "Starting US95_emapper.py..."
+echo
+
+python3 -u US95_emapper.py \
+    2>&1 | tee US95_emapper.log
+
+
+# ============================================================
+# Finished
+# ============================================================
+
+echo
+echo "=================================================="
+echo "US95 eggNOG annotation transfer finished"
+echo "End: $(date)"
+echo "=================================================="
