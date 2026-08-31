@@ -1,0 +1,69 @@
+#!/bin/bash -l
+
+#PBS -N gzip_prodigal
+#PBS -J 1-58%5
+#PBS -l select=1:ncpus=20:mem=16gb
+#PBS -l walltime=08:00:00
+#PBS -q cpu_batch_exec
+#PBS -j oe
+#PBS -m abe
+
+set -e
+
+BASEDIR="/work/microbiome/users/kruthi/intermediate_results/urban_soil"
+ASSEMBLY_LIST="${BASEDIR}/assembly_list.txt"
+LOGDIR="${BASEDIR}/prodigal_logs/gzip"
+
+mkdir -p "$LOGDIR"
+cd "$BASEDIR"
+
+# Get sample for this array job
+ASSEMBLY=$(sed -n "${PBS_ARRAY_INDEX}p" "$ASSEMBLY_LIST")
+
+if [ -z "$ASSEMBLY" ]; then
+    echo "No assembly found for array index ${PBS_ARRAY_INDEX}"
+    exit 1
+fi
+
+SAMPLE=$(basename "$ASSEMBLY" "_medaka_polypolish.fasta.PolcaCorrected.fa.gz")
+SAMPLEDIR="${BASEDIR}/${SAMPLE}"
+
+# Log file for each sample
+exec > "${LOGDIR}/${SAMPLE}.gzip.log" 2>&1
+
+echo "======================================"
+echo "Sample: $SAMPLE"
+echo "Host:   $(hostname)"
+echo "Start:  $(date)"
+echo "======================================"
+
+# Check pigz
+if ! command -v pigz >/dev/null 2>&1; then
+    echo "ERROR: pigz not found"
+    exit 1
+fi
+
+# Compress Prodigal outputs
+for FILE in \
+    "${SAMPLEDIR}/${SAMPLE}_coords.gbk" \
+    "${SAMPLEDIR}/${SAMPLE}_orfs.fna" \
+    "${SAMPLEDIR}/${SAMPLE}_proteins.faa"
+do
+
+    if [ -f "$FILE" ]; then
+        echo "Compressing: $FILE"
+        pigz -p 20 "$FILE"
+
+    elif [ -f "${FILE}.gz" ]; then
+        echo "Already compressed: ${FILE}.gz"
+
+    else
+        echo "WARNING: File not found: $FILE"
+    fi
+
+done
+
+echo "======================================"
+echo "Finished: $SAMPLE"
+echo "End:      $(date)"
+echo "======================================"
