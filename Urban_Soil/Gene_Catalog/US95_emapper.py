@@ -1,4 +1,3 @@
-cat > US95_emapper.py <<'PY'
 #!/usr/bin/env python3
 
 import os
@@ -12,9 +11,7 @@ from contextlib import contextmanager
 import numpy as np
 
 
-# ============================================================
 # Shanghai Dogs utility functions
-# ============================================================
 
 sys.path.insert(
     0,
@@ -24,13 +21,16 @@ sys.path.insert(
 import lib
 
 
-# ============================================================
-# PATHS
-# ============================================================
+# Paths
 
-BASE = Path(
+WORK = Path(
     "/work/microbiome/users/kruthi/"
     "intermediate_results/urban_soil/Prodigal"
+)
+
+CATALOG = Path(
+    "/work/microbiome/users/kruthi/"
+    "intermediate_results/urban_soil/Gene_Catalog_Urban_Soil"
 )
 
 EGGNOG_BASE = Path(
@@ -38,21 +38,19 @@ EGGNOG_BASE = Path(
     "intermediate_results/egg_nog/results"
 )
 
-ORIGIN = BASE / "UrbanSoil.ORF.orig.tsv.xz"
-CLUSTERS = BASE / "US.clusters.tsv.xz"
+ORIGIN = CATALOG / "UrbanSoil.ORF.orig.tsv.xz"
+CLUSTERS = CATALOG / "US.clusters.tsv.xz"
 
-OUT = BASE / "US.95NT.emapper.annotations.gz"
-OUT_TMP = BASE / "US.95NT.emapper.annotations.gz.part"
+OUT = CATALOG / "US.95NT.emapper.annotations.gz"
+OUT_TMP = CATALOG / ".US.95NT.emapper.annotations.gz.part"
 
-TMP_BEST = BASE / "US.tmp.best_orf_for_95.uint32"
-TMP_ORF95 = BASE / "US.tmp.orf_to_95.uint32"
+TMP_BEST = WORK / "US.tmp.best_orf_for_95.uint32"
+TMP_ORF95 = WORK / "US.tmp.orf_to_95.uint32"
 
-SORT_TMP = BASE / "US_emapper_sort_tmp"
+SORT_TMP = WORK / "US_emapper_sort_tmp"
 
 
-# ============================================================
-# EXPECTED CATALOGUE SIZES
-# ============================================================
+# Catalogue sizes
 
 N_ORFS = 265_392_705
 N95 = 199_172_868
@@ -64,9 +62,7 @@ THREADS = int(
 )
 
 
-# ============================================================
-# XZ reader
-# ============================================================
+# Read xz files
 
 @contextmanager
 def xz_reader(fname):
@@ -99,15 +95,11 @@ def xz_reader(fname):
             )
 
 
-# ============================================================
-# Numeric part of catalogue ID
-#
-# Handles:
-# US.ORF.081_385_823
-# US.95NT.044_734_275
-# ============================================================
+# Extract catalogue number
 
 def numeric_id(identifier):
+
+    identifier = identifier.split(None, 1)[0]
 
     return int(
         identifier.rsplit(".", 1)[1]
@@ -115,17 +107,25 @@ def numeric_id(identifier):
     )
 
 
-# ============================================================
-# Input checks
-# ============================================================
+# Check inputs
 
 for f in [ORIGIN, CLUSTERS]:
 
     if not f.exists():
+
         raise FileNotFoundError(
             f"Missing required file: {f}"
         )
 
+
+if not EGGNOG_BASE.exists():
+
+    raise FileNotFoundError(
+        f"Missing eggNOG directory: {EGGNOG_BASE}"
+    )
+
+
+# Find eggNOG files
 
 emapper_files = sorted(
     glob.glob(
@@ -138,14 +138,18 @@ emapper_files = sorted(
 )
 
 
-print("=" * 75, flush=True)
-print("URBAN SOIL 95NT eggNOG ANNOTATION TRANSFER", flush=True)
-print("=" * 75, flush=True)
+print("=" * 65, flush=True)
+print(
+    "URBAN SOIL 95NT eggNOG ANNOTATION TRANSFER",
+    flush=True
+)
+print("=" * 65, flush=True)
 
 print(
     f"eggNOG files found : {len(emapper_files)}",
     flush=True
 )
+
 
 if len(emapper_files) != 58:
 
@@ -155,9 +159,7 @@ if len(emapper_files) != 58:
     )
 
 
-# ============================================================
-# Build sample -> eggNOG file mapping
-# ============================================================
+# Map samples to annotation files
 
 sample_to_emapper = {}
 
@@ -174,11 +176,13 @@ for fname in emapper_files:
         sample + ".emapper.annotations"
     )
 
+
     if p.name != expected_name:
 
         raise RuntimeError(
             f"Unexpected eggNOG file name: {p}"
         )
+
 
     if sample in sample_to_emapper:
 
@@ -186,10 +190,10 @@ for fname in emapper_files:
             f"Duplicate eggNOG sample: {sample}"
         )
 
+
     sample_to_emapper[sample] = p
 
 
-    # Find eggNOG table header
     this_header = None
 
     with open(p, "rt") as f:
@@ -216,7 +220,7 @@ for fname in emapper_files:
     elif this_header != common_header:
 
         raise RuntimeError(
-            f"eggNOG headers are not identical: {p}"
+            f"eggNOG headers differ: {p}"
         )
 
 
@@ -226,16 +230,7 @@ print(
 )
 
 
-# ============================================================
-# Safety
-# ============================================================
-
-if OUT.exists():
-
-    raise FileExistsError(
-        f"{OUT} already exists."
-    )
-
+# Clear temporary files
 
 for f in [
     OUT_TMP,
@@ -258,31 +253,14 @@ SORT_TMP.mkdir(
 )
 
 
-# ============================================================
-# STEP 1
-#
-# Equivalent to SHD:
-#
-# eqs = clusters.query(
-#     'rel1 == "=" & rel2 == "="'
-# )
-#
-# Then keep the first ORF for every 95NT.
-#
-# We cannot use pandas for 265M rows, so:
-#
-# best_orf[p95] = lowest qualifying ORF
-#
-# orf_to_95[orf] = corresponding 95NT
-# ============================================================
+# Select exact ORFs
 
 print(flush=True)
-print("=" * 75, flush=True)
+
 print(
-    "STEP 1: Selecting one exact ORF for every 95NT",
+    "STEP 1: Selecting exact ORFs for 95NT representatives",
     flush=True
 )
-print("=" * 75, flush=True)
 
 
 best_orf = np.memmap(
@@ -317,6 +295,7 @@ with xz_reader(CLUSTERS) as f:
 
 
         fields = line.split()
+
 
         if len(fields) != 5:
 
@@ -409,13 +388,6 @@ best_orf.flush()
 orf_to_95.flush()
 
 
-# ============================================================
-# Same check as Shanghai Dogs:
-#
-# Every 95NT must have an ORF satisfying
-# rel1 = "=" and rel2 = "="
-# ============================================================
-
 represented_95 = int(
     np.count_nonzero(
         best_orf != SENTINEL
@@ -434,34 +406,18 @@ if represented_95 != N95:
 
     raise RuntimeError(
         f"Expected {N95:,} 95NT representatives, "
-        f"but only {represented_95:,} have "
-        f"an exact ORF."
+        f"but found {represented_95:,}"
     )
 
 
-print(
-    "All 95NT representatives verified.",
-    flush=True
-)
-
-
-# ============================================================
-# STEP 2
-#
-# Prepare sorted gzip output.
-#
-# Shanghai Dogs sorts by SHD.95NT before writing.
-#
-# We feed rows through GNU sort and then gzip.
-# ============================================================
+# Prepare output
 
 print(flush=True)
-print("=" * 75, flush=True)
+
 print(
-    "STEP 2: Mapping original ORFs to eggNOG annotations",
+    "STEP 2: Mapping ORFs to eggNOG annotations",
     flush=True
 )
-print("=" * 75, flush=True)
 
 
 raw_out = open(
@@ -502,16 +458,9 @@ sort_proc = subprocess.Popen(
 )
 
 
-# Parent no longer needs its own copy of gzip stdin
 gzip_proc.stdin.close()
 
 
-# Write table header.
-#
-# Similar final structure to SHD:
-#
-# US.95NT  #query  seed_ortholog ...
-#
 sort_proc.stdin.write(
     (
         "US.95NT\t"
@@ -521,23 +470,9 @@ sort_proc.stdin.write(
 )
 
 
-# ============================================================
-# Process one sample at a time
-#
-# For each sample:
-#
-#   selected Original_ID -> US.95NT
-#
-# Then stream that sample's eggNOG file.
-#
-# This avoids loading all 265M ORFs or all eggNOG
-# annotations into RAM.
-# ============================================================
+# Process one sample
 
-def process_sample(
-    sample,
-    selected
-):
+def process_sample(sample, selected):
 
     if sample not in sample_to_emapper:
 
@@ -568,13 +503,11 @@ def process_sample(
                 continue
 
 
-            # Skip eggNOG comments/header/footer
             if line.startswith("#"):
                 continue
 
 
             query = line.split("\t", 1)[0]
-
 
             p95 = selected.get(query)
 
@@ -602,7 +535,7 @@ def process_sample(
 
 
     print(
-        f"  annotated selected 95NTs: "
+        f"Annotated selected 95NTs: "
         f"{found:,}",
         flush=True
     )
@@ -611,9 +544,7 @@ def process_sample(
     return found
 
 
-# ============================================================
-# Scan UrbanSoil.ORF.orig.tsv.xz
-# ============================================================
+# Read original ORF mapping
 
 current_sample = None
 selected = {}
@@ -636,7 +567,6 @@ with xz_reader(ORIGIN) as f:
         fields = line.rstrip("\n").split("\t")
 
 
-        # Header
         if fields[0] == "ORF":
             continue
 
@@ -653,11 +583,6 @@ with xz_reader(ORIGIN) as f:
         sample = fields[1]
         original_id = fields[2]
 
-
-        # --------------------------------------------
-        # Samples are expected to occur in contiguous
-        # blocks because ORFs were collated sample-wise.
-        # --------------------------------------------
 
         if sample != current_sample:
 
@@ -677,7 +602,7 @@ with xz_reader(ORIGIN) as f:
 
                 raise RuntimeError(
                     f"Sample {sample} occurs in "
-                    f"multiple non-contiguous blocks."
+                    f"multiple blocks."
                 )
 
 
@@ -701,11 +626,7 @@ with xz_reader(ORIGIN) as f:
         )
 
 
-        # Not an ORF with rel1 = rel2 = "="
         if p95 != int(SENTINEL):
-
-            # Keep only the same "first ORF"
-            # selected by the SHD strategy.
 
             if int(best_orf[p95]) == iorf:
 
@@ -776,9 +697,7 @@ print(
 )
 
 
-# ============================================================
-# Verification
-# ============================================================
+# Check counts
 
 if n_origin != N_ORFS:
 
@@ -814,6 +733,7 @@ if seen_samples != set(sample_to_emapper):
         set(sample_to_emapper) - seen_samples
     )
 
+
     raise RuntimeError(
         "Sample mismatch.\n"
         f"Missing eggNOG: {missing_annotations}\n"
@@ -821,12 +741,9 @@ if seen_samples != set(sample_to_emapper):
     )
 
 
-# ============================================================
-# Finish sort -> gzip pipeline
-# ============================================================
+# Finish output
 
 sort_proc.stdin.close()
-
 
 sort_status = sort_proc.wait()
 
@@ -852,9 +769,7 @@ if gzip_status != 0:
     )
 
 
-# ============================================================
-# Accept output only after everything succeeded
-# ============================================================
+# Replace output after success
 
 os.replace(
     OUT_TMP,
@@ -862,9 +777,7 @@ os.replace(
 )
 
 
-# ============================================================
 # Cleanup
-# ============================================================
 
 del best_orf
 del orf_to_95
@@ -886,15 +799,16 @@ if SORT_TMP.exists():
     )
 
 
-# ============================================================
-# DONE
-# ============================================================
+# Summary
 
 print(flush=True)
 
-print("=" * 75, flush=True)
-print("DONE", flush=True)
-print("=" * 75, flush=True)
+print("=" * 65, flush=True)
+print(
+    "ANNOTATION TRANSFER COMPLETE",
+    flush=True
+)
+print("=" * 65, flush=True)
 
 print(
     f"Total 95NT representatives : "
@@ -919,4 +833,3 @@ print(
     f"{OUT}",
     flush=True
 )
-PY
