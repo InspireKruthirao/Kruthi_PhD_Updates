@@ -1,0 +1,13 @@
+#!/bin/bash
+#PBS -N US_neighbourhood
+#PBS -l select=1:ncpus=4:mem=512gb
+#PBS -l walltime=24:00:00
+#PBS -o /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis/logs/UrbanSoil_neighbourhood.log
+#PBS -j oe
+
+set -eo pipefail
+
+source ~/.bashrc
+conda activate kruthi
+
+python3 -u /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis/UrbanSoil_Overall_Smorfs_analysis.py
