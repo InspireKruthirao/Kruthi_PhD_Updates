@@ -1,323 +1,815 @@
-#!/bin/bash
+SQLSCRIPT=/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/UrbanSoil_Overall_Smorfs_analysis_sql.py
 
-# Activate conda
-source ~/.bashrc
-conda activate kruthi
-
-# Create directories
-echo "Creating directories..."
-mkdir -p /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/logs
-
-# Create Python script
-echo "Creating Python script..."
-cat > /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/UrbanSoil_Overall_Smorfs_analysis_sql.py << 'EOFPYTHON'
+cat > "$SQLSCRIPT" <<'PY'
 #!/usr/bin/env python3
-
 import gzip
+import lzma
 import sqlite3
-from collections import Counter
+from bisect import bisect_left
 from pathlib import Path
-import numpy as np
-import pandas as pd
 
 SMORF_FILE = Path("/work/microbiome/users/kruthi/GMSC_MAPPER_urbansoil/UrbanSoil_SMORF_resource/UrbanSoil_100AA_SMORFs_origins.tsv.gz")
 GENE_CATALOG = Path("/work/microbiome/users/kruthi/intermediate_results/urban_soil/Gene_Catalog_Urban_Soil/UrbanSoil.ORF.orig.tsv.xz")
 EGGNOG_DIR = Path("/work/microbiome/users/kruthi/intermediate_results/egg_nog/results")
 BASE_OUT = Path("/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL")
-DB_PATH = str(BASE_OUT / "urban_soil.db")
+DB_PATH = BASE_OUT / "urban_soil.db"
 
 BIN_WIDTH = 5
 WINDOW = 5
+BATCH = 100_000
 PROGRESS_EVERY = 25
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute("DROP TABLE IF EXISTS smorf_occurrences")
-    cursor.execute("DROP TABLE IF EXISTS smorf_summary")
-    cursor.execute("DROP TABLE IF EXISTS genes")
-    cursor.execute("DROP TABLE IF EXISTS eggnog")
-    
-    cursor.execute("""
-        CREATE TABLE smorf_occurrences (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            smorf_id TEXT NOT NULL,
-            sample TEXT,
-            base_contig TEXT,
-            smorf_start INTEGER,
-            smorf_end INTEGER
-        )
-    """)
-    cursor.execute("CREATE INDEX idx_smorf_id ON smorf_occurrences(smorf_id)")
-    cursor.execute("CREATE INDEX idx_sample_contig ON smorf_occurrences(sample, base_contig)")
-    
-    cursor.execute("""
-        CREATE TABLE smorf_summary (
-            smorf_id TEXT PRIMARY KEY,
-            occurrence_count INTEGER
-        )
-    """)
-    
-    cursor.execute("""
-        CREATE TABLE genes (
-            orf TEXT,
-            sample TEXT,
-            base_contig TEXT,
-            start INTEGER,
-            end INTEGER,
-            strand TEXT,
-            partial TEXT
-        )
-    """)
-    cursor.execute("CREATE INDEX idx_gene_sample_contig ON genes(sample, base_contig, start, end)")
-    
-    cursor.execute("""
-        CREATE TABLE eggnog (
-            query_id TEXT PRIMARY KEY,
-            annotation_line TEXT
-        )
-    """)
-    
-    conn.commit()
-    conn.close()
 
-def load_data():
-    print("Initializing database...", flush=True)
-    init_db()
-    
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    print("Pass 1: Loading smorfs...", flush=True)
-    smorf_counts = Counter()
-    
-    with gzip.open(SMORF_FILE, "rt") as f:
-        next(f)
-        for line in f:
-            if not line.strip():
-                continue
+def inputs():
+    missing = [
+        str(path)
+        for path in (SMORF_FILE, GENE_CATALOG)
+        if not path.is_file()
+    ]
+
+    files = sorted(
+        EGGNOG_DIR.glob("*/*.emapper.annotations.gz")
+    )
+
+    if not EGGNOG_DIR.is_dir() or not files:
+        missing.append(
+            f"eggNOG files under {EGGNOG_DIR}"
+        )
+
+    if missing:
+        raise FileNotFoundError(
+            "Missing input(s):\n" + "\n".join(missing)
+        )
+
+    print(
+        f"eggNOG annotation files found: {len(files)}",
+        flush=True,
+    )
+
+    return files
+
+
+def connect():
+    connection = sqlite3.connect(
+        str(DB_PATH),
+        timeout=120,
+    )
+
+    connection.execute("PRAGMA journal_mode=OFF")
+    connection.execute("PRAGMA synchronous=OFF")
+    connection.execute("PRAGMA temp_store=FILE")
+    connection.execute("PRAGMA cache_size=-2097152")
+
+    return connection
+
+
+def complete():
+    if not DB_PATH.is_file():
+        return False
+
+    try:
+        connection = sqlite3.connect(
+            f"file:{DB_PATH}?mode=ro",
+            uri=True,
+        )
+
+        row = connection.execute(
+            "SELECT completed FROM build_status LIMIT 1"
+        ).fetchone()
+
+        connection.close()
+
+        return bool(row and row[0])
+
+    except sqlite3.Error:
+        return False
+
+
+def insert_stream(connection, sql, rows, label):
+    batch = []
+    total = 0
+
+    for row in rows:
+        batch.append(row)
+
+        if len(batch) == BATCH:
+            connection.executemany(sql, batch)
+            connection.commit()
+
+            total += len(batch)
+            batch.clear()
+
+            if total % 1_000_000 == 0:
+                print(
+                    f"  {label}: {total:,} rows",
+                    flush=True,
+                )
+
+    if batch:
+        connection.executemany(sql, batch)
+        connection.commit()
+        total += len(batch)
+
+    print(
+        f"  {label}: {total:,} rows total",
+        flush=True,
+    )
+
+    return total
+
+
+def smorf_rows():
+    with gzip.open(SMORF_FILE, "rt") as handle:
+        next(handle, None)
+
+        for line in handle:
             parts = line.rstrip("\n").split("\t")
+
             if len(parts) < 4:
                 continue
-            
-            smorf_id, sample, contig, coordinates = parts[:4]
-            base_contig = contig.split("_polypolish", 1)[0]
-            smorf_start, smorf_end = map(int, coordinates.split("-", 1))
-            
-            smorf_counts[smorf_id] += 1
-            
-            cursor.execute(
-                "INSERT INTO smorf_occurrences (smorf_id, sample, base_contig, smorf_start, smorf_end) VALUES (?, ?, ?, ?, ?)",
-                (smorf_id, sample, base_contig, smorf_start, smorf_end)
+
+            try:
+                start, end = map(
+                    int,
+                    parts[3].split("-", 1),
+                )
+            except ValueError:
+                continue
+
+            yield (
+                parts[0],
+                parts[1],
+                parts[2].split("_polypolish", 1)[0],
+                start,
+                end,
             )
-    
-    for smorf_id, count in smorf_counts.items():
-        cursor.execute(
-            "INSERT INTO smorf_summary (smorf_id, occurrence_count) VALUES (?, ?)",
-            (smorf_id, count)
+
+
+def gene_rows():
+    with lzma.open(GENE_CATALOG, "rt") as handle:
+        header = next(handle).rstrip("\n").split("\t")
+
+        required = (
+            "ORF",
+            "Sample",
+            "Original_ID",
+            "Start",
+            "End",
+            "Strand",
+            "Partial",
         )
-    
-    conn.commit()
-    
-    print(f"Unique SmORFs: {len(smorf_counts)}", flush=True)
-    print("Loading genes...", flush=True)
-    
-    gene_df = pd.read_csv(GENE_CATALOG, sep="\t", compression="xz", dtype=str, low_memory=False)
-    gene_df = gene_df[["ORF", "Sample", "Original_ID", "Start", "End", "Strand", "Partial"]].copy()
-    gene_df.columns = ["ORF", "Sample", "Contig", "Start", "End", "Strand", "Partial"]
-    gene_df["Start"] = pd.to_numeric(gene_df["Start"], errors="coerce")
-    gene_df["End"] = pd.to_numeric(gene_df["End"], errors="coerce")
-    gene_df = gene_df.dropna(subset=["Start", "End"])
-    gene_df["BaseContig"] = gene_df["Contig"].str.split("_polypolish", n=1).str[0]
-    
-    for _, row in gene_df.iterrows():
-        cursor.execute(
-            "INSERT INTO genes (orf, sample, base_contig, start, end, strand, partial) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (row["ORF"], row["Sample"], row["BaseContig"], int(row["Start"]), int(row["End"]), row["Strand"], row["Partial"])
-        )
-    
-    conn.commit()
-    
-    print("Loading eggNOG files...", flush=True)
-    annot_files = list(sorted(EGGNOG_DIR.glob("*/*.emapper.annotations.gz")))
-    print(f"Found {len(annot_files)} annotation files", flush=True)
-    
-    for idx, annot_file in enumerate(annot_files, 1):
-        if idx % 10 == 0 or idx == len(annot_files):
-            print(f"  Loading file {idx}/{len(annot_files)}", flush=True)
-        
-        with gzip.open(annot_file, "rt") as f:
-            for line in f:
+
+        positions = {
+            name: header.index(name)
+            for name in required
+        }
+
+        for line in handle:
+            parts = line.rstrip("\n").split("\t")
+
+            try:
+                original_id = parts[
+                    positions["Original_ID"]
+                ]
+
+                yield (
+                    parts[positions["ORF"]],
+                    parts[positions["Sample"]],
+                    original_id.split(
+                        "_polypolish",
+                        1,
+                    )[0],
+                    original_id,
+                    int(parts[positions["Start"]]),
+                    int(parts[positions["End"]]),
+                    parts[positions["Strand"]],
+                    parts[positions["Partial"]],
+                )
+
+            except (ValueError, IndexError):
+                continue
+
+
+def eggnog_rows(files, header_box):
+    for number, path in enumerate(files, 1):
+        sample = path.parent.name
+
+        with gzip.open(path, "rt") as handle:
+            for line in handle:
+                if line.startswith("#query"):
+                    if not header_box:
+                        header_box.append(
+                            line.rstrip("\n")
+                        )
+                    continue
+
                 if line.startswith("#") or not line.strip():
                     continue
-                query_id = line.split("\t", 1)[0]
-                cursor.execute("INSERT OR IGNORE INTO eggnog (query_id, annotation_line) VALUES (?, ?)", (query_id, line))
-    
-    conn.commit()
-    conn.close()
-    print("Database ready!", flush=True)
 
-def get_neighbours(conn, sample, base_contig, smorf_start, smorf_end, smorf_id):
-    cursor = conn.cursor()
-    
-    cursor.execute(
-        """SELECT orf, start, end, strand, partial FROM genes 
-           WHERE sample = ? AND base_contig = ? 
-           ORDER BY start""",
-        (sample, base_contig)
+                yield (
+                    sample,
+                    line.split("\t", 1)[0],
+                    line.rstrip("\n"),
+                )
+
+        print(
+            f"  eggNOG file {number}/{len(files)}: "
+            f"{sample}",
+            flush=True,
+        )
+
+
+def build(files):
+    print(
+        "Initializing corrected SQLite database...",
+        flush=True,
     )
-    genes = cursor.fetchall()
-    
-    if not genes:
+
+    connection = connect()
+
+    connection.executescript(
+        """
+        CREATE TABLE smorf_occurrences (
+            smorf_id TEXT NOT NULL,
+            sample TEXT NOT NULL,
+            base_contig TEXT NOT NULL,
+            smorf_start INTEGER NOT NULL,
+            smorf_end INTEGER NOT NULL
+        );
+
+        CREATE TABLE genes (
+            orf TEXT NOT NULL,
+            sample TEXT NOT NULL,
+            base_contig TEXT NOT NULL,
+            annotation_query TEXT NOT NULL,
+            gene_start INTEGER NOT NULL,
+            gene_end INTEGER NOT NULL,
+            strand TEXT,
+            partial TEXT
+        );
+
+        CREATE TABLE eggnog (
+            sample TEXT NOT NULL,
+            query_id TEXT NOT NULL,
+            annotation_line TEXT NOT NULL,
+            PRIMARY KEY (sample, query_id)
+        ) WITHOUT ROWID;
+
+        CREATE TABLE eggnog_metadata (
+            annotation_header TEXT NOT NULL
+        );
+
+        CREATE TABLE build_status (
+            completed INTEGER NOT NULL
+        );
+        """
+    )
+
+    print(
+        "Loading smORF occurrences...",
+        flush=True,
+    )
+
+    insert_stream(
+        connection,
+        "INSERT INTO smorf_occurrences "
+        "VALUES (?, ?, ?, ?, ?)",
+        smorf_rows(),
+        "smORFs",
+    )
+
+    print(
+        "Creating smORF summary and index...",
+        flush=True,
+    )
+
+    connection.execute(
+        "CREATE TABLE smorf_summary AS "
+        "SELECT smorf_id, COUNT(*) AS occurrence_count "
+        "FROM smorf_occurrences "
+        "GROUP BY smorf_id"
+    )
+
+    connection.execute(
+        "CREATE UNIQUE INDEX idx_summary "
+        "ON smorf_summary(smorf_id)"
+    )
+
+    connection.execute(
+        "CREATE INDEX idx_occurrence "
+        "ON smorf_occurrences(smorf_id)"
+    )
+
+    connection.commit()
+
+    unique_smorfs = connection.execute(
+        "SELECT COUNT(*) FROM smorf_summary"
+    ).fetchone()[0]
+
+    print(
+        f"Unique smORFs: {unique_smorfs:,}",
+        flush=True,
+    )
+
+    print(
+        "Loading genes while retaining Original_ID...",
+        flush=True,
+    )
+
+    insert_stream(
+        connection,
+        "INSERT INTO genes "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        gene_rows(),
+        "genes",
+    )
+
+    print("Creating gene index...", flush=True)
+
+    connection.execute(
+        "CREATE INDEX idx_gene_location "
+        "ON genes("
+        "sample, base_contig, gene_start, gene_end"
+        ")"
+    )
+
+    connection.commit()
+
+    print(
+        "Loading eggNOG with sample-aware keys...",
+        flush=True,
+    )
+
+    header = []
+
+    insert_stream(
+        connection,
+        "INSERT OR REPLACE INTO eggnog "
+        "VALUES (?, ?, ?)",
+        eggnog_rows(files, header),
+        "eggNOG",
+    )
+
+    connection.execute(
+        "INSERT INTO eggnog_metadata VALUES (?)",
+        (
+            header[0]
+            if header
+            else "#query",
+        ),
+    )
+
+    match = connection.execute(
+        """
+        SELECT 1
+        FROM genes AS g
+        JOIN eggnog AS e
+          ON e.sample = g.sample
+         AND e.query_id = g.annotation_query
+        LIMIT 1
+        """
+    ).fetchone()
+
+    if not match:
+        raise RuntimeError(
+            "No eggNOG sample + Original_ID match found"
+        )
+
+    connection.execute(
+        "INSERT INTO build_status VALUES (1)"
+    )
+
+    connection.commit()
+
+    print(
+        "eggNOG sample + Original_ID validation: PASSED",
+        flush=True,
+    )
+
+    print(
+        "SQLite database ready!",
+        flush=True,
+    )
+
+    return connection
+
+
+def get_neighbours(
+    connection,
+    sample,
+    base_contig,
+    smorf_start,
+    smorf_end,
+    smorf_id,
+):
+    rows = connection.execute(
+        """
+        SELECT
+            orf,
+            annotation_query,
+            gene_start,
+            gene_end,
+            strand,
+            partial
+        FROM genes
+        WHERE sample = ?
+          AND base_contig = ?
+        ORDER BY gene_start
+        """,
+        (
+            sample,
+            base_contig,
+        ),
+    ).fetchall()
+
+    if not rows:
         return None
-    
-    gene_list = [{"ORF": g[0], "Start": g[1], "End": g[2], "Strand": g[3], "Partial": g[4]} for g in genes]
-    
-    overlap = np.array([min(g["End"], smorf_end) - max(g["Start"], smorf_start) for g in gene_list])
-    overlap = np.clip(overlap, 0, None)
-    
-    if overlap.max() > 0:
-        anchor_idx = int(overlap.argmax())
-        note = f"TARGET ({smorf_id}) - overlaps by {int(overlap.max())} bp"
+
+    genes = [
+        {
+            "ORF": row[0],
+            "Query": row[1],
+            "Start": int(row[2]),
+            "End": int(row[3]),
+            "Strand": row[4],
+            "Partial": row[5],
+            "Note": "",
+        }
+        for row in rows
+    ]
+
+    overlaps = [
+        max(
+            0,
+            min(gene["End"], smorf_end)
+            - max(gene["Start"], smorf_start),
+        )
+        for gene in genes
+    ]
+
+    if max(overlaps) > 0:
+        anchor = overlaps.index(max(overlaps))
+        note = (
+            f"TARGET ({smorf_id}) - overlaps by "
+            f"{max(overlaps)} bp"
+        )
     else:
-        anchor_idx = int(np.searchsorted([g["Start"] for g in gene_list], smorf_start))
-        anchor_idx = max(0, min(anchor_idx, len(gene_list) - 1))
-        note = f"TARGET ({smorf_id}) - intergenic"
-    
-    left = max(0, anchor_idx - WINDOW)
-    right = min(len(gene_list), anchor_idx + WINDOW + 1)
-    
-    neighbours = gene_list[left:right]
-    for n in neighbours:
-        n["Note"] = ""
-    neighbours[anchor_idx - left]["Note"] = note
-    
-    return neighbours
+        starts = [
+            gene["Start"]
+            for gene in genes
+        ]
+
+        anchor = min(
+            bisect_left(starts, smorf_start),
+            len(genes) - 1,
+        )
+
+        note = (
+            f"TARGET ({smorf_id}) - intergenic"
+        )
+
+    left = max(0, anchor - WINDOW)
+    right = min(
+        len(genes),
+        anchor + WINDOW + 1,
+    )
+
+    result = genes[left:right]
+    result[anchor - left]["Note"] = note
+
+    return result
+
+
+def get_annotations(
+    connection,
+    sample,
+    neighbour_rows,
+):
+    query_ids = [
+        gene["Query"]
+        for gene in neighbour_rows
+    ]
+
+    placeholders = ",".join(
+        "?"
+        for _ in query_ids
+    )
+
+    rows = connection.execute(
+        "SELECT query_id, annotation_line "
+        "FROM eggnog "
+        "WHERE sample = ? "
+        f"AND query_id IN ({placeholders})",
+        (
+            sample,
+            *query_ids,
+        ),
+    ).fetchall()
+
+    annotation_map = dict(rows)
+
+    missing = sum(
+        query_id not in annotation_map
+        for query_id in query_ids
+    )
+
+    return annotation_map, missing
+
+
+def process_catalogue(connection):
+    annotation_header = connection.execute(
+        "SELECT annotation_header "
+        "FROM eggnog_metadata LIMIT 1"
+    ).fetchone()[0]
+
+    max_count = connection.execute(
+        "SELECT MAX(occurrence_count) "
+        "FROM smorf_summary"
+    ).fetchone()[0]
+
+    bins = [
+        (
+            start,
+            start + BIN_WIDTH - 1,
+        )
+        for start in range(
+            1,
+            max_count + 1,
+            BIN_WIDTH,
+        )
+    ]
+
+    bin_counts = {}
+    log_path = BASE_OUT / "bin_creation_log.tsv"
+
+    with log_path.open("w") as log:
+        log.write(
+            "BinStart\tBinEnd\tLabel\t"
+            "SmORF_Count\tStatus\tFolder\n"
+        )
+
+        for start, end in bins:
+            count = connection.execute(
+                "SELECT COUNT(*) "
+                "FROM smorf_summary "
+                "WHERE occurrence_count BETWEEN ? AND ?",
+                (
+                    start,
+                    end,
+                ),
+            ).fetchone()[0]
+
+            bin_counts[(start, end)] = count
+            label = f"{start}_{end}"
+
+            status = (
+                "CREATED"
+                if count
+                else "SKIPPED_EMPTY"
+            )
+
+            folder = (
+                f"SmORF_neighbourhoods_{label}"
+                if count
+                else "NA"
+            )
+
+            log.write(
+                f"{start}\t{end}\t{label}\t"
+                f"{count}\t{status}\t{folder}\n"
+            )
+
+    print(
+        f"Bin log written: {log_path}",
+        flush=True,
+    )
+
+    for start, end in bins:
+        total = bin_counts[(start, end)]
+
+        if not total:
+            continue
+
+        label = f"{start}_{end}"
+
+        output_root = (
+            BASE_OUT
+            / f"SmORF_neighbourhoods_{label}"
+        )
+
+        output_root.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        print(
+            f"\nProcessing bin: {label} "
+            f"({total} smORFs)",
+            flush=True,
+        )
+
+        smorf_ids = connection.execute(
+            "SELECT smorf_id "
+            "FROM smorf_summary "
+            "WHERE occurrence_count BETWEEN ? AND ? "
+            "ORDER BY smorf_id",
+            (
+                start,
+                end,
+            ),
+        )
+
+        summary_path = (
+            output_root / "summary.tsv"
+        )
+
+        with summary_path.open("w") as summary:
+            summary.write(
+                "SmORF_ID\tTotalOccurrences\t"
+                "OccurrencesProcessed\t"
+                "NeighborsWritten\t"
+                "SkippedNoGenes\t"
+                "EggNOGMissing\n"
+            )
+
+            for number, (smorf_id,) in enumerate(
+                smorf_ids,
+                1,
+            ):
+                occurrences = connection.execute(
+                    "SELECT sample, base_contig, "
+                    "smorf_start, smorf_end "
+                    "FROM smorf_occurrences "
+                    "WHERE smorf_id = ?",
+                    (
+                        smorf_id,
+                    ),
+                ).fetchall()
+
+                processed = 0
+                written = 0
+                skipped_no_genes = 0
+                eggnog_missing = 0
+
+                for (
+                    sample,
+                    base_contig,
+                    smorf_start,
+                    smorf_end,
+                ) in occurrences:
+                    processed += 1
+
+                    neighbour_rows = get_neighbours(
+                        connection,
+                        sample,
+                        base_contig,
+                        smorf_start,
+                        smorf_end,
+                        smorf_id,
+                    )
+
+                    if not neighbour_rows:
+                        skipped_no_genes += 1
+                        continue
+
+                    output_directory = (
+                        output_root
+                        / smorf_id
+                        / f"{sample}_{base_contig}"
+                    )
+
+                    output_directory.mkdir(
+                        parents=True,
+                        exist_ok=True,
+                    )
+
+                    with (
+                        output_directory
+                        / "neighbors.tsv"
+                    ).open("w") as output:
+                        output.write(
+                            "ORF\tSample\tContig\t"
+                            "Start\tEnd\tStrand\t"
+                            "Partial\tNote\n"
+                        )
+
+                        for gene in neighbour_rows:
+                            output.write(
+                                f"{gene['ORF']}\t"
+                                f"{sample}\t"
+                                f"{gene['Query']}\t"
+                                f"{gene['Start']}\t"
+                                f"{gene['End']}\t"
+                                f"{gene['Strand']}\t"
+                                f"{gene['Partial']}\t"
+                                f"{gene['Note']}\n"
+                            )
+
+                    (
+                        annotation_map,
+                        missing,
+                    ) = get_annotations(
+                        connection,
+                        sample,
+                        neighbour_rows,
+                    )
+
+                    eggnog_missing += missing
+
+                    with (
+                        output_directory
+                        / "EggNOG_annotations.tsv"
+                    ).open("w") as output:
+                        output.write(
+                            annotation_header.rstrip("\n")
+                            + "\n"
+                        )
+
+                        for gene in neighbour_rows:
+                            annotation = (
+                                annotation_map.get(
+                                    gene["Query"]
+                                )
+                            )
+
+                            if annotation:
+                                output.write(
+                                    annotation.rstrip("\n")
+                                    + "\n"
+                                )
+
+                    written += 1
+
+                summary.write(
+                    f"{smorf_id}\t"
+                    f"{len(occurrences)}\t"
+                    f"{processed}\t"
+                    f"{written}\t"
+                    f"{skipped_no_genes}\t"
+                    f"{eggnog_missing}\n"
+                )
+
+                if (
+                    number % PROGRESS_EVERY == 0
+                    or number == total
+                ):
+                    print(
+                        f"  [{label}] "
+                        f"{number}/{total} done",
+                        flush=True,
+                    )
+
+        print(
+            f"Completed bin: {label}",
+            flush=True,
+        )
+
 
 def main():
-    BASE_OUT.mkdir(parents=True, exist_ok=True)
-    (BASE_OUT / "logs").mkdir(parents=True, exist_ok=True)
-    
-    if not Path(DB_PATH).exists():
-        load_data()
+    annotation_files = inputs()
+
+    BASE_OUT.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    (
+        BASE_OUT / "logs"
+    ).mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    if DB_PATH.exists() and not complete():
+        raise RuntimeError(
+            f"Incomplete database exists: {DB_PATH}; "
+            "move it aside before rerunning"
+        )
+
+    if complete():
+        print(
+            "Complete SQLite database exists; "
+            "skipping database construction",
+            flush=True,
+        )
+
+        connection = connect()
     else:
-        print("Database already exists, skipping data load", flush=True)
-    
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    print("Pass 1: Counting SmORF occurrences (from database)...", flush=True)
-    
-    cursor.execute("SELECT smorf_id, occurrence_count FROM smorf_summary")
-    smorf_data = {row[0]: row[1] for row in cursor.fetchall()}
-    
-    max_count = max(smorf_data.values())
-    all_bins = [(start, start + BIN_WIDTH - 1) for start in range(1, max_count + 1, BIN_WIDTH)]
-    
-    print(f"Unique SmORFs: {len(smorf_data)}", flush=True)
-    
-    log_path = BASE_OUT / "bin_creation_log.tsv"
-    with log_path.open("w") as log:
-        log.write("BinStart\tBinEnd\tLabel\tSmORF_Count\tStatus\tFolder\n")
-        for start, end in all_bins:
-            label = f"{start}_{end}"
-            smorfs_in_bin = [s for s, c in smorf_data.items() if start <= c <= end]
-            status = "CREATED" if smorfs_in_bin else "SKIPPED_EMPTY"
-            folder = f"SmORF_neighbourhoods_{label}" if smorfs_in_bin else "NA"
-            log.write(f"{start}\t{end}\t{label}\t{len(smorfs_in_bin)}\t{status}\t{folder}\n")
-    
-    print(f"Bin log written: {log_path}", flush=True)
-    
-    for start, end in all_bins:
-        label = f"{start}_{end}"
-        smorfs_in_bin = sorted([s for s, c in smorf_data.items() if start <= c <= end])
-        
-        if not smorfs_in_bin:
-            continue
-        
-        output_root = BASE_OUT / f"SmORF_neighbourhoods_{label}"
-        output_root.mkdir(parents=True, exist_ok=True)
-        
-        print(f"\nProcessing bin: {label} ({len(smorfs_in_bin)} smorfs)", flush=True)
-        
-        summary_path = output_root / "summary.tsv"
-        with summary_path.open("w") as summary:
-            summary.write("SmORF_ID\tTotalOccurrences\tOccurrencesProcessed\tNeighborsWritten\tSkippedNoGenes\tEggNOGMissing\n")
-        
-        for i, smorf_id in enumerate(smorfs_in_bin):
-            cursor.execute(
-                "SELECT sample, base_contig, smorf_start, smorf_end FROM smorf_occurrences WHERE smorf_id = ?", 
-                (smorf_id,)
-            )
-            occurrences = cursor.fetchall()
-            
-            processed = written = skipped_no_genes = eggnog_missing = 0
-            
-            for sample, base_contig, smorf_start, smorf_end in occurrences:
-                processed += 1
-                neighbours = get_neighbours(conn, sample, base_contig, smorf_start, smorf_end, smorf_id)
-                
-                if not neighbours:
-                    skipped_no_genes += 1
-                    continue
-                
-                output_dir = output_root / smorf_id / f"{sample}_{base_contig}"
-                output_dir.mkdir(parents=True, exist_ok=True)
-                
-                with open(output_dir / "neighbors.tsv", "w") as f:
-                    f.write("ORF\tSample\tContig\tStart\tEnd\tStrand\tPartial\tNote\n")
-                    for n in neighbours:
-                        f.write(f"{n['ORF']}\t{sample}\t{base_contig}\t{n['Start']}\t{n['End']}\t{n['Strand']}\t{n['Partial']}\t{n['Note']}\n")
-                
-                cursor.execute("SELECT annotation_line FROM eggnog WHERE query_id = ?", (base_contig,))
-                annot = cursor.fetchone()
-                
-                with open(output_dir / "EggNOG_annotations.tsv", "w") as f:
-                    f.write(annot[0] if annot else "")
-                    if not annot:
-                        eggnog_missing += 1
-                
-                written += 1
-            
-            with summary_path.open("a") as summary:
-                summary.write(f"{smorf_id}\t{len(occurrences)}\t{processed}\t{written}\t{skipped_no_genes}\t{eggnog_missing}\n")
-            
-            if (i + 1) % PROGRESS_EVERY == 0 or (i + 1) == len(smorfs_in_bin):
-                print(f"  [{label}] {i + 1}/{len(smorfs_in_bin)} done", flush=True)
-        
-        print(f"Completed bin: {label}", flush=True)
-    
-    conn.close()
-    print("\nALL DONE", flush=True)
+        connection = build(
+            annotation_files
+        )
+
+    try:
+        process_catalogue(connection)
+    finally:
+        connection.close()
+
+    print(
+        "\nALL DONE",
+        flush=True,
+    )
+
 
 if __name__ == "__main__":
     main()
-EOFPYTHON
-
-chmod +x /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/UrbanSoil_Overall_Smorfs_analysis_sql.py
-
-# Create PBS script
-echo "Creating PBS job script..."
-cat > /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/submit.pbs << 'EOFPBS'
-#!/bin/bash
-#PBS -N US_neighbourhood_sql
-#PBS -l select=1:ncpus=8:mem=256gb
-#PBS -l walltime=24:00:00
-#PBS -o /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/logs/UrbanSoil_neighbourhood_sql.log
-#PBS -j oe
-
-set -eo pipefail
-
-source ~/.bashrc
-conda activate kruthi
-
-mkdir -p /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/logs
-
-python3 -u /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/UrbanSoil_Overall_Smorfs_analysis_sql.py
-EOFPBS
-
-chmod +x /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/submit.pbs
-
-echo "✅ Setup complete! Ready to submit job..."
-echo "Submit with: qsub /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/submit.pbs"
+PY
