@@ -1,0 +1,13 @@
+#!/bin/bash
+#PBS -N US_make_gff
+#PBS -l select=1:ncpus=2:mem=128gb
+#PBS -l walltime=48:00:00
+#PBS -q cpu_batch_exec
+#PBS -o /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL_ge6/logs/Create_UrbanSoil_GFFs.log
+#PBS -j oe
+
+set -eo pipefail
+export PYTHONNOUSERSITE=1
+
+/home/n12228516/.conda/envs/kruthi/bin/python3 -s -u \
+/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL_ge6/Create_UrbanSoil_GFFs.py
