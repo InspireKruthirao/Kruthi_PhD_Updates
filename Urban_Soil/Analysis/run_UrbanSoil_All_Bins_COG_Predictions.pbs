@@ -1,0 +1,65 @@
+#!/bin/bash
+#PBS -N US_COG_bins
+#PBS -q cpu_batch_exec
+#PBS -l select=1:ncpus=1:mem=16gb
+#PBS -l walltime=24:00:00
+#PBS -J 0-10%8
+#PBS -o /dev/null
+#PBS -e /dev/null
+
+set -euo pipefail
+
+DATA_ROOT=/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL_ge6
+REPO_ROOT=/work/microbiome/users/kruthi/intermediate_results/Kruthi_PhD_Updates
+SCRIPT="$REPO_ROOT/Urban_Soil/Analysis/UrbanSoil_SmORF_COG_Predictions.py"
+PYTHON=/home/n12228516/.conda/envs/kruthi/bin/python3
+
+BINS=(
+    6_10
+    11_15
+    16_20
+    21_25
+    26_30
+    31_35
+    36_40
+    41_45
+    46_50
+    51_55
+    56_60
+)
+
+INDEX=${PBS_ARRAY_INDEX}
+LABEL=${BINS[$INDEX]}
+BIN_DIR="$DATA_ROOT/SmORF_neighbourhoods_$LABEL"
+LOG="$DATA_ROOT/logs/COG_prediction_${LABEL}.log"
+OUTPUT="$BIN_DIR/smorf_onehot_predictions_validation.tsv"
+
+mkdir -p "$DATA_ROOT/logs"
+exec > "$LOG" 2>&1
+
+echo "Bin: $LABEL"
+echo "Input: $BIN_DIR"
+echo "Started: $(date)"
+echo "Host: $(hostname)"
+
+if [[ ! -f "$SCRIPT" ]]; then
+    echo "ERROR: Python script not found: $SCRIPT"
+    exit 1
+fi
+
+if [[ ! -d "$BIN_DIR" ]]; then
+    echo "ERROR: Bin directory not found: $BIN_DIR"
+    exit 1
+fi
+
+if [[ -s "$OUTPUT" ]]; then
+    echo "SKIPPED: completed prediction output already exists: $OUTPUT"
+    exit 0
+fi
+
+"$PYTHON" -s -u "$SCRIPT" \
+    "$BIN_DIR" \
+    --progress-every 1000
+
+echo "Finished: $(date)"
+echo "Output: $OUTPUT"
