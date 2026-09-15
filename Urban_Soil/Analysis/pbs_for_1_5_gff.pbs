@@ -5,7 +5,7 @@ cat > "$PBSFILE" <<'PBS'
 #PBS -N US_gff_1_5
 #PBS -q cpu_batch_exec
 #PBS -l select=1:ncpus=4:mem=16gb
-#PBS -l walltime=39:00:00
+#PBS -l walltime=20:00:00
 #PBS -J 0-20%5
 #PBS -o /dev/null
 #PBS -e /dev/null
