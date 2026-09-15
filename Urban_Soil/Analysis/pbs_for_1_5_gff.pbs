@@ -15,6 +15,7 @@ set -eo pipefail
 ROOT=/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL
 SCRIPT="$ROOT/Create_UrbanSoil_GFF.py"
 PYTHON=/home/n12228516/.conda/envs/kruthi/bin/python3
+WORKERS=${PBS_NCPUS:-4}
 
 SECTION=$(printf '%03d' "$PBS_ARRAY_INDEX")
 LOG="$ROOT/logs/gff_1_5_section_${SECTION}.log"
@@ -25,11 +26,11 @@ exec > "$LOG" 2>&1
 echo "Section: $SECTION"
 echo "Started: $(date)"
 echo "Host: $(hostname)"
-echo "CPUs: $PBS_NCPUS"
+echo "Workers: $WORKERS"
 
 "$PYTHON" -s -u "$SCRIPT" \
     --section "$PBS_ARRAY_INDEX" \
-    --workers "$PBS_NCPUS"
+    --workers "$WORKERS"
 
 echo "Finished: $(date)"
 PBS
