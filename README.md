@@ -2,6 +2,13 @@
 
 This repository contains scripts, workflows, figures, and results investigating the functional prediction of small proteins (smORFs) using genomic neighbourhood information.
 
+
+## Workflow at a glance
+
+![Illustrated workflow of the smORF gene-neighbourhood prediction pipeline](assets/smorf_neighbourhood_workflow.png)
+
+*From metagenomic material to short-protein discovery, genomic-neighbourhood context, functional annotation and evidence-weighted prediction. Purple marks the target smORF; teal and blue mark neighbouring annotated genes.*
+
 ## Research objective
 
 The project examines whether conserved neighbouring genes can help predict the functions of poorly characterised small proteins (≤100 amino acids).
