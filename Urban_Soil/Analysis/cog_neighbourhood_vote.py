@@ -46,7 +46,7 @@ import argparse
 import csv
 import re
 import sys
-from collections import defaultdict, Counter
+from collections import defaultdict
 from pathlib import Path
 
 RANK_WEIGHTS = {1: 1.0, 2: 0.8, 3: 0.6, 4: 0.4, 5: 0.2}
