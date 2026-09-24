@@ -2,38 +2,6 @@
 """
 cog_neighbourhood_vote.py
 
-Predicts a COG functional category for each smORF by weighted voting over
-its flanking genes (per the original 7-step spec), with two refinements
-adopted from a reference implementation:
-
-  - Neighbour ranking is STRAND-RELATIVE: "closest" means closest in the
-    direction of transcription, not raw genome coordinate. If the target is
-    on the '-' strand, the neighbour order is reversed so position -1 is
-    always the immediately-upstream gene in reading direction.
-  - Confidence tiers (VERY_HIGH/HIGH/MEDIUM/LOW) based on top-category vote
-    share, with accuracy reported per tier.
-
-Two accuracy numbers are reported, both from the SAME predictions, just
-different evaluation scopes - nothing is hidden:
-  - "all"      : every COG letter counts, exactly per the original spec.
-  - "excl_SR"  : S (function unknown) and R (general prediction only) are
-                 excluded from both voting and evaluation. This is a
-                 narrower, legitimate question ("how good is the method at
-                 distinguishing real functional categories from each
-                 other") but it is NOT the same claim as overall accuracy,
-                 so both numbers are kept side by side rather than only
-                 reporting the higher one.
-
-Steps 1-7 from the original spec:
-1. Extract neighbouring genes from all occurrences.
-2. Position weights: closest=1.0, 2nd=0.8, 3rd=0.6, 4th=0.4, 5th=0.2
-   (applied per side: up to 5 upstream + 5 downstream, strand-relative).
-3. Sum weighted votes per COG category across all occurrences.
-4. Assign the category with the highest total score.
-5. Exclude neighbours annotated Unknown or without a COG category.
-6. Tied top categories -> prediction = UNRESOLVED.
-7. Known COG category used only to evaluate accuracy, never to predict.
-
 USAGE
 -----
     python3 cog_neighbourhood_vote.py \
