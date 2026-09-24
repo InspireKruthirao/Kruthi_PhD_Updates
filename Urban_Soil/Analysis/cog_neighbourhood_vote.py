@@ -1,12 +1,7 @@
+cat > cog_neighbourhood_vote.py << 'PYEOF'
 #!/usr/bin/env python3
 """
 cog_neighbourhood_vote.py
-
-USAGE
------
-    python3 cog_neighbourhood_vote.py \
-        --base-dir SmORF_neighbourhoods_26_30 \
-        --out-summary results_26_30_summary.tsv
 """
 
 import argparse
@@ -209,12 +204,12 @@ def process_smorf(smorf_dir, max_n=5):
     return summary_row
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base-dir", required=True, type=Path)
     ap.add_argument("--out-summary", required=True, type=Path)
     ap.add_argument("--max-neighbours", type=int, default=5)
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     smorf_dirs = sorted(p for p in args.base_dir.iterdir() if p.is_dir())
     print(f"Found {len(smorf_dirs)} smORF folders under {args.base_dir}", file=sys.stderr)
@@ -259,3 +254,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+PYEOF
