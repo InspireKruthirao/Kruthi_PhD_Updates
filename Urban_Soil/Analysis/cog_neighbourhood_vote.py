@@ -11,7 +11,7 @@ adopted from a reference implementation:
     on the '-' strand, the neighbour order is reversed so position -1 is
     always the immediately-upstream gene in reading direction.
   - Confidence tiers (VERY_HIGH/HIGH/MEDIUM/LOW) based on top-category vote
-    share and evidence count, with accuracy reported per tier.
+    share, with accuracy reported per tier.
 
 Two accuracy numbers are reported, both from the SAME predictions, just
 different evaluation scopes - nothing is hidden:
@@ -38,8 +38,7 @@ USAGE
 -----
     python3 cog_neighbourhood_vote.py \
         --base-dir SmORF_neighbourhoods_26_30 \
-        --out-summary results_26_30_summary.tsv \
-        --out-neighbours results_26_30_neighbours.tsv
+        --out-summary results_26_30_summary.tsv
 """
 
 import argparse
@@ -161,12 +160,12 @@ def resolve(votes):
     return top[0], max_score
 
 
-def confidence_tier(top_pct, n_occ):
-    if top_pct >= 50 and n_occ >= 15:
+def confidence_tier(top_pct):
+    if top_pct >= 50:
         return "VERY_HIGH"
-    if top_pct >= 40 and n_occ >= 8:
+    if top_pct >= 40:
         return "HIGH"
-    if top_pct >= 30 and n_occ >= 4:
+    if top_pct >= 30:
         return "MEDIUM"
     return "LOW"
 
@@ -177,7 +176,6 @@ def process_smorf(smorf_dir, max_n=5):
 
     votes_all = defaultdict(float)
     votes_excl = defaultdict(float)
-    neighbour_rows = []
     known_all = set()
     n_occurrences_used = 0
 
@@ -193,7 +191,7 @@ def process_smorf(smorf_dir, max_n=5):
 
         known_all.update(get_cog_categories(target["name"]))
 
-        for rank, direction, dist, g in ranked_neighbours(genes, target, max_n):
+        for rank, _direction, _dist, g in ranked_neighbours(genes, target, max_n):
             cats_all = get_cog_categories(g["name"])
             cats_excl = get_cog_categories(g["name"], EXCLUDE_FROM_EXCL_SR)
             weight = RANK_WEIGHTS[rank]
@@ -206,23 +204,6 @@ def process_smorf(smorf_dir, max_n=5):
                 share = weight / len(cats_excl)
                 for c in cats_excl:
                     votes_excl[c] += share
-
-            neighbour_rows.append(
-                {
-                    "smorf_id": smorf_id,
-                    "occurrence": occ_dir.name,
-                    "target_id": target["id"],
-                    "neighbour_id": g["id"],
-                    "neighbour_name": g["name"],
-                    "cog_categories": ",".join(cats_all),
-                    "rank": rank,
-                    "weight": weight,
-                    "direction": direction,
-                    "neighbour_strand": g["strand"],
-                    "target_strand": target["strand"],
-                    "intergenic_distance": dist,
-                }
-            )
 
     prediction_all, score_all = resolve(votes_all)
     prediction_excl, score_excl = resolve(votes_excl)
@@ -246,7 +227,7 @@ def process_smorf(smorf_dir, max_n=5):
         "smorf_id": smorf_id,
         "n_occurrences": len(occ_dirs),
         "n_occurrences_with_target": n_occurrences_used,
-        "confidence_tier": confidence_tier(top_pct_all, n_occurrences_used),
+        "confidence_tier": confidence_tier(top_pct_all),
         "prediction": prediction_all,
         "top_score_pct": top_pct_all,
         "vote_breakdown": ";".join(f"{c}:{v:.2f}" for c, v in sorted(votes_all.items(), key=lambda x: -x[1])),
@@ -257,38 +238,30 @@ def process_smorf(smorf_dir, max_n=5):
         "known_category_excl_SR": ",".join(sorted(known_excl)),
         "correct_excl_SR": correct_excl,
     }
-    return summary_row, neighbour_rows
+    return summary_row
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base-dir", required=True, type=Path)
     ap.add_argument("--out-summary", required=True, type=Path)
-    ap.add_argument("--out-neighbours", required=True, type=Path)
     ap.add_argument("--max-neighbours", type=int, default=5)
     args = ap.parse_args()
 
     smorf_dirs = sorted(p for p in args.base_dir.iterdir() if p.is_dir())
     print(f"Found {len(smorf_dirs)} smORF folders under {args.base_dir}", file=sys.stderr)
 
-    summary_rows, all_neighbour_rows = [], []
+    summary_rows = []
     for i, smorf_dir in enumerate(smorf_dirs, start=1):
         if i % 200 == 0:
             print(f"  ... {i}/{len(smorf_dirs)} processed", file=sys.stderr)
-        s_row, n_rows = process_smorf(smorf_dir, args.max_neighbours)
-        summary_rows.append(s_row)
-        all_neighbour_rows.extend(n_rows)
+        summary_rows.append(process_smorf(smorf_dir, args.max_neighbours))
 
-    with open(args.out_summary, "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=list(summary_rows[0].keys()), delimiter="\t")
-        w.writeheader()
-        w.writerows(summary_rows)
-
-    if all_neighbour_rows:
-        with open(args.out_neighbours, "w", newline="") as fh:
-            w = csv.DictWriter(fh, fieldnames=list(all_neighbour_rows[0].keys()), delimiter="\t")
+    if summary_rows:
+        with open(args.out_summary, "w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(summary_rows[0].keys()), delimiter="\t")
             w.writeheader()
-            w.writerows(all_neighbour_rows)
+            w.writerows(summary_rows)
 
     def report(field, label):
         evaluated = [r for r in summary_rows if r[field] in ("True", "False")]
@@ -314,7 +287,6 @@ def main():
         print(f"  {tier:<10} n={len(subset):5d}  accuracy={acc:.3f}", file=sys.stderr)
 
     print(f"\nWrote: {args.out_summary}", file=sys.stderr)
-    print(f"Wrote: {args.out_neighbours}", file=sys.stderr)
 
 
 if __name__ == "__main__":
