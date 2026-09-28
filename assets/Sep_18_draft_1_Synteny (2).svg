@@ -1,0 +1,1983 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="1660"
+   height="940"
+   viewBox="0 0 1660 940"
+   version="1.1"
+   id="svg111"
+   sodipodi:docname="Sep_18_draft_1_Synteny.svg"
+   inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:c2pa="http://c2pa.org/manifest">
+  <sodipodi:namedview
+     id="namedview111"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="1.1057946"
+     inkscape:cx="796.71212"
+     inkscape:cy="539.88324"
+     inkscape:window-width="2576"
+     inkscape:window-height="2041"
+     inkscape:window-x="2871"
+     inkscape:window-y="0"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg111" />
+  <metadata
+     id="metadata1">
+    <c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTplN2NkYTZjOC0yZDYxLTQzNDktOGQxZi03Njg1NTA3OWE0MjUAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaB7lTeemUAkDSUA2s0cw2ewAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDpiMjZlYzk0NC1kN2M0LTRkZTgtOGJkMi1jZGRiODA2OWYzYTFscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNooi7ifChF3AXe9UcrSPCRkAAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFggFWIA/cvCybrFcszGqhHyEj/RWZqaZaSjpHrw5n+txJKkZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaOQVXiIuPLp32y1OkPBjzKUAAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRNAAAAAAAAAAAAAAAAAGRoYXNoWCCJ7ngmOklffko0+wIRuztCP39lacCC3ZaBUw40uil8QGRuYW1lbmp1bWJmIG1hbmlmZXN0amV4Y2x1c2lvbnOBomVzdGFydBjqZmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOmU3Y2RhNmM4LTJkNjEtNDM0OS04ZDFmLTc2ODU1MDc5YTQyNS9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOmUwM2ZjYmJhLTFmYTYtNDcxYy1hNTRkLTA4ZDJmMjE2NGIyNXJjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCAVYgD9y8LJusVyzMaqEfISP9FZmpplpKOkevDmf63EkqJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFggshFI5FDDOdO/uWQILt5leNHGLsxVLri61wBLfcxoiJWiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFggW2Lxdye7VhIOKk6s/8SPlWCjpWL9hdheReq18IT1k6N0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQL9LgppW2JzyzF25mjOiXdR7iH7heJ2fAicfCB+2DLygZeVo2wwMa+y3BmBonSIdmxB8PXzpr+KEHYfbGyRjGWA=</c2pa:manifest>
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:title>smORF functional annotation by conserved synteny</dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <title
+     id="title1">smORF functional annotation by conserved synteny</title>
+  <desc
+     id="desc1">Editable vector recreation: Detect - Integrate - Predict workflow.</desc>
+  <defs
+     id="defs1">
+    <rect
+       x="1001.9944"
+       y="645.68951"
+       width="11.756252"
+       height="69.181019"
+       id="rect113" />
+    <rect
+       x="621.87075"
+       y="613.2381"
+       width="41.884354"
+       height="36.129252"
+       id="rect112" />
+    <marker
+       id="arrowEnd"
+       viewBox="0 0 12 12"
+       refX="10"
+       refY="6"
+       markerWidth="9"
+       markerHeight="9"
+       orient="auto-start-reverse">
+      <path
+         d="M 0 1 L 11 6 L 0 11 z"
+         fill="#123A5E"
+         id="path1" />
+    </marker>
+  </defs>
+  <rect
+     id="background"
+     x="0"
+     y="0"
+     width="1660"
+     height="940"
+     fill="#FFFFFF" />
+  <g
+     id="panel-1-candidate-smorfs">
+    <rect
+       x="20"
+       y="105"
+       width="265"
+       height="440"
+       rx="14"
+       ry="14"
+       fill="#FFFFFF"
+       stroke="#C9D6E3"
+       stroke-width="1.5"
+       id="panel-1-frame" />
+    <text
+       x="152"
+       y="143"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="21"
+       font-weight="bold"
+       fill="#111111"
+       text-anchor="middle"
+       id="text1">Candidate smORFs</text>
+    <g
+       id="peptide-chain">
+      <path
+         d="M 60 215 C 84 196, 108 234, 132 214 C 156 194, 180 232, 208 208"
+         fill="none"
+         stroke="#6B3FA0"
+         stroke-width="3"
+         id="path2" />
+      <circle
+         id="residue-1"
+         cx="62"
+         cy="214"
+         r="10.5"
+         fill="#8B5BC4"
+         stroke="#5B3390"
+         stroke-width="1.5" />
+      <circle
+         id="residue-2"
+         cx="84"
+         cy="204"
+         r="10.5"
+         fill="#8B5BC4"
+         stroke="#5B3390"
+         stroke-width="1.5" />
+      <circle
+         id="residue-3"
+         cx="106"
+         cy="219"
+         r="10.5"
+         fill="#8B5BC4"
+         stroke="#5B3390"
+         stroke-width="1.5" />
+      <circle
+         id="residue-4"
+         cx="128"
+         cy="214"
+         r="10.5"
+         fill="#8B5BC4"
+         stroke="#5B3390"
+         stroke-width="1.5" />
+      <circle
+         id="residue-5"
+         cx="150"
+         cy="203"
+         r="10.5"
+         fill="#8B5BC4"
+         stroke="#5B3390"
+         stroke-width="1.5" />
+      <circle
+         id="residue-6"
+         cx="172"
+         cy="220"
+         r="10.5"
+         fill="#8B5BC4"
+         stroke="#5B3390"
+         stroke-width="1.5" />
+      <circle
+         id="residue-7"
+         cx="194"
+         cy="212"
+         r="10.5"
+         fill="#8B5BC4"
+         stroke="#5B3390"
+         stroke-width="1.5" />
+      <circle
+         id="residue-8"
+         cx="212"
+         cy="203"
+         r="10.5"
+         fill="#8B5BC4"
+         stroke="#5B3390"
+         stroke-width="1.5" />
+      <text
+         x="40"
+         y="210"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="17"
+         font-weight="bold"
+         fill="#5B3390"
+         text-anchor="middle"
+         id="text2">N</text>
+      <text
+         x="232"
+         y="205"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="17"
+         font-weight="bold"
+         fill="#5B3390"
+         text-anchor="middle"
+         id="text3">C</text>
+    </g>
+    <text
+       x="152"
+       y="262"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="16"
+       font-weight="normal"
+       fill="#1A1A1A"
+       text-anchor="middle"
+       id="text4">smORF</text>
+    <text
+       x="152"
+       y="285"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="16"
+       font-weight="normal"
+       fill="#1A1A1A"
+       text-anchor="middle"
+       id="text5">(up to 100 amino acids)</text>
+    <g
+       id="panel-1-sample">
+      <line
+         x1="132"
+         y1="392"
+         x2="170"
+         y2="380"
+         stroke="#4A5560"
+         stroke-width="1.6"
+         stroke-dasharray="5 4"
+         id="line5" />
+      <line
+         x1="132"
+         y1="430"
+         x2="170"
+         y2="422"
+         stroke="#4A5560"
+         stroke-width="1.6"
+         stroke-dasharray="5 4"
+         id="line6" />
+      <g
+         id="soil-mound-panel1"
+         transform="translate(28 338) scale(0.72)">
+        <g
+           id="soil-mound-panel1-plant">
+          <path
+             d="M 78 20 C 74 44, 76 60, 80 76"
+             fill="none"
+             stroke="#4CA64C"
+             stroke-width="5"
+             stroke-linecap="round"
+             id="path6" />
+          <path
+             d="M 78 30 C 56 14, 34 20, 30 34 C 44 48, 68 46, 78 34 Z"
+             fill="#4CA64C"
+             id="path7" />
+          <path
+             d="M 80 48 C 100 30, 124 36, 128 50 C 114 64, 90 62, 80 52 Z"
+             fill="#3E9440"
+             id="path8" />
+          <path
+             d="M 78 60 C 60 50, 42 54, 38 66 C 52 78, 72 74, 78 64 Z"
+             fill="#4CA64C"
+             id="path9" />
+        </g>
+        <g
+           id="soil-mound-panel1-soil">
+          <path
+             d="M 4 128 C 6 96, 30 78, 56 82 C 68 60, 104 62, 116 82 C 146 78, 168 98, 170 128 Z"
+             fill="#7B4B2A"
+             id="path10" />
+          <circle
+             cx="40"
+             cy="104"
+             r="15"
+             fill="#96603A"
+             id="circle10" />
+          <circle
+             cx="80"
+             cy="94"
+             r="17"
+             fill="#96603A"
+             id="circle11" />
+          <circle
+             cx="124"
+             cy="104"
+             r="14"
+             fill="#96603A"
+             id="circle12" />
+          <circle
+             cx="58"
+             cy="122"
+             r="13"
+             fill="#5E3719"
+             id="circle13" />
+          <circle
+             cx="104"
+             cy="120"
+             r="14"
+             fill="#5E3719"
+             id="circle14" />
+          <circle
+             cx="146"
+             cy="120"
+             r="11"
+             fill="#96603A"
+             id="circle15" />
+          <circle
+             cx="22"
+             cy="120"
+             r="11"
+             fill="#5E3719"
+             id="circle16" />
+        </g>
+      </g>
+      <g
+         id="microbes-panel1">
+        <circle
+           cx="214"
+           cy="401"
+           r="43"
+           fill="#EAF3FC"
+           stroke="#3D6FA8"
+           stroke-width="3"
+           id="circle17" />
+        <rect
+           x="190.708"
+           y="379.5"
+           width="23.2917"
+           height="9.85417"
+           rx="4.92708"
+           fill="#2FB5A8"
+           transform="rotate(-25 202.354 384.875)"
+           id="rect17" />
+        <rect
+           x="215.792"
+           y="388.458"
+           width="21.5"
+           height="9.85417"
+           rx="4.92708"
+           fill="#4DA3E8"
+           transform="rotate(20 226.542 393.833)"
+           id="rect18" />
+        <rect
+           x="194.292"
+           y="406.375"
+           width="23.2917"
+           height="9.85417"
+           rx="4.92708"
+           fill="#4DA3E8"
+           transform="rotate(12 205.938 411.75)"
+           id="rect19" />
+        <rect
+           x="219.375"
+           y="413.542"
+           width="19.7083"
+           height="8.95833"
+           rx="4.47917"
+           fill="#2FB5A8"
+           transform="rotate(-18 229.229 418.021)"
+           id="rect20" />
+        <path
+           d="M 192.5 427.875 q 7.16667 -10.75 14.3333 0 q 7.16667 10.75 14.3333 0"
+           fill="none"
+           stroke="#7C4DBE"
+           stroke-width="3.58333"
+           stroke-linecap="round"
+           id="path20" />
+      </g>
+    </g>
+    <text
+       x="152"
+       y="500"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="16"
+       font-weight="normal"
+       fill="#1A1A1A"
+       text-anchor="middle"
+       id="text20">Metagenome /</text>
+    <text
+       x="152"
+       y="523"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="16"
+       font-weight="normal"
+       fill="#1A1A1A"
+       text-anchor="middle"
+       id="text21">environmental sample</text>
+  </g>
+  <g
+     id="panel-2-extract-neighbours">
+    <rect
+       x="320"
+       y="105"
+       width="285"
+       height="440"
+       rx="14"
+       ry="14"
+       fill="#FFFFFF"
+       stroke="#C9D6E3"
+       stroke-width="1.5"
+       id="panel-2-frame" />
+    <text
+       x="462"
+       y="143"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="21"
+       font-weight="bold"
+       fill="#111111"
+       text-anchor="middle"
+       id="text22">Extract neighbours</text>
+    <g
+       id="sample-A">
+      <text
+         x="336"
+         y="196"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="17"
+         font-weight="normal"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text23">Sample A</text>
+      <text
+         x="330"
+         y="238"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="20"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text24">…</text>
+      <path
+         id="sampleA-gene-1"
+         d="M 352 224 L 378 224 L 378 218 L 392 232 L 378 246 L 378 240 L 352 240 Z"
+         fill="#4DA3E8" />
+      <path
+         id="sampleA-gene-2"
+         d="M 396 224 L 422 224 L 422 218 L 436 232 L 422 246 L 422 240 L 396 240 Z"
+         fill="#2FB5A8" />
+      <path
+         id="sampleA-gene-3"
+         d="M 440 224 L 466 224 L 466 218 L 480 232 L 466 246 L 466 240 L 440 240 Z"
+         fill="#7C4DBE" />
+      <path
+         id="sampleA-gene-4"
+         d="M 484 224 L 510 224 L 510 218 L 524 232 L 510 246 L 510 240 L 484 240 Z"
+         fill="#2FB5A8" />
+      <path
+         id="sampleA-gene-5"
+         d="M 528 224 L 554 224 L 554 218 L 568 232 L 554 246 L 554 240 L 528 240 Z"
+         fill="#4DA3E8" />
+      <text
+         x="576"
+         y="238"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="20"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text25">…</text>
+      <text
+         x="462"
+         y="264"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="15"
+         font-weight="bold"
+         fill="#7C4DBE"
+         text-anchor="middle"
+         id="text26">smORF</text>
+    </g>
+    <g
+       id="sample-B">
+      <text
+         x="336"
+         y="316"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="17"
+         font-weight="normal"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text27">Sample B</text>
+      <text
+         x="330"
+         y="358"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="20"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text28">…</text>
+      <path
+         id="sampleB-gene-1"
+         d="M 352 344 L 378 344 L 378 338 L 392 352 L 378 366 L 378 360 L 352 360 Z"
+         fill="#4DA3E8" />
+      <path
+         id="sampleB-gene-2"
+         d="M 396 344 L 422 344 L 422 338 L 436 352 L 422 366 L 422 360 L 396 360 Z"
+         fill="#2FB5A8" />
+      <path
+         id="sampleB-gene-3"
+         d="M 440 344 L 466 344 L 466 338 L 480 352 L 466 366 L 466 360 L 440 360 Z"
+         fill="#7C4DBE" />
+      <path
+         id="sampleB-gene-4"
+         d="M 484 344 L 510 344 L 510 338 L 524 352 L 510 366 L 510 360 L 484 360 Z"
+         fill="#4DA3E8" />
+      <path
+         id="sampleB-gene-5"
+         d="M 528 344 L 554 344 L 554 338 L 568 352 L 554 366 L 554 360 L 528 360 Z"
+         fill="#2FB5A8" />
+      <text
+         x="576"
+         y="358"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="20"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text29">…</text>
+      <text
+         x="462"
+         y="384"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="15"
+         font-weight="bold"
+         fill="#7C4DBE"
+         text-anchor="middle"
+         id="text30">smORF</text>
+    </g>
+    <g
+       id="sample-C">
+      <text
+         x="336"
+         y="436"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="17"
+         font-weight="normal"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text31">Sample C</text>
+      <text
+         x="330"
+         y="478"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="20"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text32">…</text>
+      <path
+         id="sampleC-gene-1"
+         d="M 352 464 L 378 464 L 378 458 L 392 472 L 378 486 L 378 480 L 352 480 Z"
+         fill="#4DA3E8" />
+      <path
+         id="sampleC-gene-2"
+         d="M 396 464 L 422 464 L 422 458 L 436 472 L 422 486 L 422 480 L 396 480 Z"
+         fill="#2FB5A8" />
+      <path
+         id="sampleC-gene-3"
+         d="M 440 464 L 466 464 L 466 458 L 480 472 L 466 486 L 466 480 L 440 480 Z"
+         fill="#7C4DBE" />
+      <path
+         id="sampleC-gene-4"
+         d="M 484 464 L 510 464 L 510 458 L 524 472 L 510 486 L 510 480 L 484 480 Z"
+         fill="#4DA3E8" />
+      <path
+         id="sampleC-gene-5"
+         d="M 528 464 L 554 464 L 554 458 L 568 472 L 554 486 L 554 480 L 528 480 Z"
+         fill="#2FB5A8" />
+      <text
+         x="576"
+         y="478"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="20"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text33">…</text>
+      <text
+         x="462"
+         y="504"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="15"
+         font-weight="bold"
+         fill="#7C4DBE"
+         text-anchor="middle"
+         id="text34">smORF</text>
+    </g>
+  </g>
+  <g
+     id="panel-3-synteny">
+    <circle
+       id="synteny-circle"
+       cx="830"
+       cy="325"
+       r="190"
+       fill="#F5F9FD"
+       stroke="#123A5E"
+       stroke-width="4" />
+    <text
+       x="830"
+       y="172"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="26"
+       font-weight="bold"
+       fill="#0E3D77"
+       text-anchor="middle"
+       id="text35">SYNTENY</text>
+    <text
+       x="830"
+       y="199"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="16"
+       font-weight="normal"
+       fill="#1A1A1A"
+       text-anchor="middle"
+       id="text36">Conserved neighbourhoods</text>
+    <text
+       x="830"
+       y="220"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="16"
+       font-weight="normal"
+       fill="#1A1A1A"
+       text-anchor="middle"
+       id="text37">across samples</text>
+    <g
+       id="dna-helix-left"
+       transform="translate(742 252)">
+      <path
+         d="M 0 0 C 12.9 -13, 30.1 -13, 43 0 S 73.1 13, 86 0"
+         fill="none"
+         stroke="#2E6FA8"
+         stroke-width="3.5"
+         stroke-linecap="round"
+         id="path37" />
+      <path
+         d="M 0 0 C 12.9 13, 30.1 13, 43 0 S 73.1 -13, 86 0"
+         fill="none"
+         stroke="#2E6FA8"
+         stroke-width="3.5"
+         stroke-linecap="round"
+         id="path38" />
+      <line
+         x1="10.75"
+         y1="-9.36"
+         x2="10.75"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line38" />
+      <line
+         x1="21.5"
+         y1="-9.36"
+         x2="21.5"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line39" />
+      <line
+         x1="32.25"
+         y1="-9.36"
+         x2="32.25"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line40" />
+      <line
+         x1="43"
+         y1="-9.36"
+         x2="43"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line41" />
+      <line
+         x1="53.75"
+         y1="-9.36"
+         x2="53.75"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line42" />
+      <line
+         x1="64.5"
+         y1="-9.36"
+         x2="64.5"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line43" />
+      <line
+         x1="75.25"
+         y1="-9.36"
+         x2="75.25"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line44" />
+    </g>
+    <g
+       id="dna-helix-right"
+       transform="translate(866 252)">
+      <path
+         d="M 0 0 C 12.9 -13, 30.1 -13, 43 0 S 73.1 13, 86 0"
+         fill="none"
+         stroke="#2E6FA8"
+         stroke-width="3.5"
+         stroke-linecap="round"
+         id="path44" />
+      <path
+         d="M 0 0 C 12.9 13, 30.1 13, 43 0 S 73.1 -13, 86 0"
+         fill="none"
+         stroke="#2E6FA8"
+         stroke-width="3.5"
+         stroke-linecap="round"
+         id="path45" />
+      <line
+         x1="10.75"
+         y1="-9.36"
+         x2="10.75"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line45" />
+      <line
+         x1="21.5"
+         y1="-9.36"
+         x2="21.5"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line46" />
+      <line
+         x1="32.25"
+         y1="-9.36"
+         x2="32.25"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line47" />
+      <line
+         x1="43"
+         y1="-9.36"
+         x2="43"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line48" />
+      <line
+         x1="53.75"
+         y1="-9.36"
+         x2="53.75"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line49" />
+      <line
+         x1="64.5"
+         y1="-9.36"
+         x2="64.5"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line50" />
+      <line
+         x1="75.25"
+         y1="-9.36"
+         x2="75.25"
+         y2="9.36"
+         stroke="#2E6FA8"
+         stroke-width="2.4"
+         stroke-linecap="round"
+         opacity="0.85"
+         id="line51" />
+    </g>
+    <g
+       id="synteny-links">
+      <path
+         id="link-1"
+         d="M 792 272 C 792 288, 716 280, 716 300"
+         fill="none"
+         stroke="#9BA6B2"
+         stroke-width="1.6"
+         stroke-dasharray="6 5" />
+      <path
+         id="link-2"
+         d="M 792 272 C 792 288, 760 280, 760 300"
+         fill="none"
+         stroke="#9BA6B2"
+         stroke-width="1.6"
+         stroke-dasharray="6 5" />
+      <path
+         id="link-3"
+         d="M 792 272 C 792 288, 804 280, 804 300"
+         fill="none"
+         stroke="#9BA6B2"
+         stroke-width="1.6"
+         stroke-dasharray="6 5" />
+      <path
+         id="link-4"
+         d="M 880 272 C 880 288, 848 280, 848 300"
+         fill="none"
+         stroke="#9BA6B2"
+         stroke-width="1.6"
+         stroke-dasharray="6 5" />
+      <path
+         id="link-5"
+         d="M 880 272 C 880 288, 892 280, 892 300"
+         fill="none"
+         stroke="#9BA6B2"
+         stroke-width="1.6"
+         stroke-dasharray="6 5" />
+      <path
+         id="link-6"
+         d="M 880 272 C 880 288, 936 280, 936 300"
+         fill="none"
+         stroke="#9BA6B2"
+         stroke-width="1.6"
+         stroke-dasharray="6 5" />
+    </g>
+    <g
+       id="habitat-row-soil">
+      <text
+         x="658"
+         y="322"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="16"
+         font-weight="normal"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text51">Soil</text>
+      <text
+         x="694"
+         y="322"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="20"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text52">…</text>
+      <line
+         x1="712"
+         y1="316"
+         x2="962"
+         y2="316"
+         stroke="#C3CCD6"
+         stroke-width="2"
+         id="line52" />
+      <path
+         id="soil-gene-1"
+         d="M 712 308 L 736 308 L 736 302 L 750 316 L 736 330 L 736 324 L 712 324 Z"
+         fill="#4DA3E8" />
+      <path
+         id="soil-gene-2"
+         d="M 754 308 L 778 308 L 778 302 L 792 316 L 778 330 L 778 324 L 754 324 Z"
+         fill="#2FB5A8" />
+      <path
+         id="soil-gene-3"
+         d="M 796 308 L 820 308 L 820 302 L 834 316 L 820 330 L 820 324 L 796 324 Z"
+         fill="#7C4DBE" />
+      <path
+         id="soil-gene-4"
+         d="M 838 308 L 862 308 L 862 302 L 876 316 L 862 330 L 862 324 L 838 324 Z"
+         fill="#2FB5A8" />
+      <path
+         id="soil-gene-5"
+         d="M 880 308 L 904 308 L 904 302 L 918 316 L 904 330 L 904 324 L 880 324 Z"
+         fill="#2FB5A8" />
+      <path
+         id="soil-gene-6"
+         d="M 922 308 L 946 308 L 946 302 L 960 316 L 946 330 L 946 324 L 922 324 Z"
+         fill="#4DA3E8" />
+      <text
+         x="968"
+         y="322"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="20"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text53">…</text>
+    </g>
+    <g
+       id="habitat-row-gut">
+      <text
+         x="648"
+         y="390"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="16"
+         font-weight="normal"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text54">Gut (dog)</text>
+      <text
+         x="722"
+         y="390"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="20"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text55">…</text>
+      <line
+         x1="740"
+         y1="384"
+         x2="962"
+         y2="384"
+         stroke="#C3CCD6"
+         stroke-width="2"
+         id="line55" />
+      <path
+         id="gut-gene-1"
+         d="M 740 376 L 764 376 L 764 370 L 778 384 L 764 398 L 764 392 L 740 392 Z"
+         fill="#4DA3E8" />
+      <path
+         id="gut-gene-2"
+         d="M 782 376 L 806 376 L 806 370 L 820 384 L 806 398 L 806 392 L 782 392 Z"
+         fill="#2FB5A8" />
+      <path
+         id="gut-gene-3"
+         d="M 824 376 L 848 376 L 848 370 L 862 384 L 848 398 L 848 392 L 824 392 Z"
+         fill="#7C4DBE" />
+      <path
+         id="gut-gene-4"
+         d="M 904 376 L 880 376 L 880 370 L 866 384 L 880 398 L 880 392 L 904 392 Z"
+         fill="#2FB5A8" />
+      <path
+         id="gut-gene-5"
+         d="M 908 376 L 932 376 L 932 370 L 946 384 L 932 398 L 932 392 L 908 392 Z"
+         fill="#2FB5A8" />
+      <text
+         x="968"
+         y="390"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="20"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text56">…</text>
+    </g>
+    <text
+       x="830"
+       y="468"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="16"
+       font-weight="normal"
+       fill="#1A1A1A"
+       text-anchor="middle"
+       id="text57">Conserved synteny</text>
+    <text
+       x="830"
+       y="490"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="16"
+       font-weight="normal"
+       fill="#1A1A1A"
+       text-anchor="middle"
+       id="text58">suggests shared function</text>
+  </g>
+  <g
+     id="panel-4-annotate-vote">
+    <rect
+       x="1050"
+       y="105"
+       width="300"
+       height="440"
+       rx="14"
+       ry="14"
+       fill="#FFFFFF"
+       stroke="#C9D6E3"
+       stroke-width="1.5"
+       id="panel-4-frame" />
+    <text
+       x="1200"
+       y="143"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="21"
+       font-weight="bold"
+       fill="#111111"
+       text-anchor="middle"
+       id="text59">Annotate + vote</text>
+    <g
+       id="eggnog-table">
+      <rect
+         x="1068"
+         y="162"
+         width="264"
+         height="212"
+         rx="6"
+         ry="6"
+         fill="#FFFFFF"
+         stroke="#C9D6E3"
+         stroke-width="1.5"
+         id="table-frame" />
+      <rect
+         x="1068"
+         y="162"
+         width="264"
+         height="34"
+         rx="6"
+         ry="6"
+         fill="#EEF2F6"
+         stroke="#C9D6E3"
+         stroke-width="1.5"
+         id="table-caption-bg" />
+      <text
+         x="1080"
+         y="185"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="15"
+         font-weight="bold"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text60">eggNOG annotation (top hits)</text>
+      <rect
+         x="1068"
+         y="196"
+         width="264"
+         height="30"
+         rx="0"
+         ry="0"
+         fill="#F6F8FA"
+         stroke="#C9D6E3"
+         stroke-width="1.2"
+         id="table-header-bg" />
+      <text
+         x="1076"
+         y="216"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="12.5"
+         font-weight="bold"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text61">COG ID</text>
+      <text
+         x="1150"
+         y="216"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="12.5"
+         font-weight="bold"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text62">Description</text>
+      <text
+         x="1286"
+         y="216"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="12"
+         font-weight="bold"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text63">Score</text>
+      <line
+         x1="1142"
+         y1="196"
+         x2="1142"
+         y2="374"
+         stroke="#C9D6E3"
+         stroke-width="1.2"
+         id="line63" />
+      <line
+         x1="1278"
+         y1="196"
+         x2="1278"
+         y2="374"
+         stroke="#C9D6E3"
+         stroke-width="1.2"
+         id="line64" />
+      <line
+         x1="1068"
+         y1="226"
+         x2="1332"
+         y2="226"
+         stroke="#DCE4EC"
+         stroke-width="1.1"
+         id="line65" />
+      <text
+         x="1076"
+         y="246.0"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="12"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text65">COG0523</text>
+      <text
+         x="1150"
+         y="246.0"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="11.8"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text66">ABC transporter</text>
+      <line
+         x1="1068"
+         y1="255.6"
+         x2="1332"
+         y2="255.6"
+         stroke="#DCE4EC"
+         stroke-width="1.1"
+         id="line66" />
+      <text
+         x="1076"
+         y="275.6"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="12"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text67">COG1364</text>
+      <text
+         x="1150"
+         y="275.6"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="11.8"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text68">Membrane protein</text>
+      <line
+         x1="1068"
+         y1="285.2"
+         x2="1332"
+         y2="285.2"
+         stroke="#DCE4EC"
+         stroke-width="1.1"
+         id="line68" />
+      <text
+         x="1076"
+         y="305.2"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="12"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text69">COG2189</text>
+      <text
+         x="1150"
+         y="305.2"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="11.8"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text70">Peptidase</text>
+      <line
+         x1="1068"
+         y1="314.8"
+         x2="1332"
+         y2="314.8"
+         stroke="#DCE4EC"
+         stroke-width="1.1"
+         id="line70" />
+      <text
+         x="1076"
+         y="334.8"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="12"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text71">COG1028</text>
+      <text
+         x="1150"
+         y="334.8"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="11.8"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text72">Transcriptional regulator</text>
+      <line
+         x1="1068"
+         y1="344.4"
+         x2="1332"
+         y2="344.4"
+         stroke="#DCE4EC"
+         stroke-width="1.1"
+         id="line72" />
+      <text
+         x="1076"
+         y="364.4"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="12"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text73">COG3176</text>
+      <text
+         x="1150"
+         y="364.4"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="11.8"
+         font-weight="normal"
+         fill="#333333"
+         text-anchor="start"
+         id="text74">Hypothetical protein</text>
+    </g>
+    <g
+       id="vote-bars">
+      <text
+         x="1068"
+         y="414"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="14"
+         font-weight="normal"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text75">Distance</text>
+      <rect
+         x="1148"
+         y="396"
+         width="148"
+         height="28"
+         rx="5"
+         ry="5"
+         fill="#E3E8ED"
+         stroke="none"
+         stroke-width="0"
+         id="bar-track-distance" />
+      <rect
+         x="1148"
+         y="396"
+         width="91.8"
+         height="28"
+         rx="5"
+         ry="5"
+         fill="#2FB5A8"
+         stroke="none"
+         stroke-width="0"
+         id="bar-fill-distance" />
+      <text
+         x="1068"
+         y="452"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="14"
+         font-weight="normal"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text76">Frequency</text>
+      <rect
+         x="1148"
+         y="434"
+         width="148"
+         height="28"
+         rx="5"
+         ry="5"
+         fill="#E3E8ED"
+         stroke="none"
+         stroke-width="0"
+         id="bar-track-frequency" />
+      <rect
+         x="1148"
+         y="434"
+         width="85.8"
+         height="28"
+         rx="5"
+         ry="5"
+         fill="#4DA3E8"
+         stroke="none"
+         stroke-width="0"
+         id="bar-fill-frequency" />
+      <text
+         x="1068"
+         y="490"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="14"
+         font-weight="normal"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text77">Combined</text>
+      <rect
+         x="1148"
+         y="472"
+         width="148"
+         height="28"
+         rx="5"
+         ry="5"
+         fill="#E3E8ED"
+         stroke="none"
+         stroke-width="0"
+         id="bar-track-combined" />
+      <rect
+         x="1148"
+         y="472"
+         width="112.5"
+         height="28"
+         rx="5"
+         ry="5"
+         fill="#F4776B"
+         stroke="none"
+         stroke-width="0"
+         id="bar-fill-combined" />
+    </g>
+  </g>
+  <g
+     id="panel-5-visualise">
+    <rect
+       x="1375"
+       y="105"
+       width="265"
+       height="440"
+       rx="14"
+       ry="14"
+       fill="#FFFFFF"
+       stroke="#C9D6E3"
+       stroke-width="1.5"
+       id="panel-5-frame" />
+    <text
+       x="1507"
+       y="143"
+       font-family="Arial, Helvetica, sans-serif"
+       font-size="21"
+       font-weight="bold"
+       fill="#111111"
+       text-anchor="middle"
+       id="text78">Visualise predictions</text>
+    <g
+       id="monitor">
+      <rect
+         x="1393"
+         y="176"
+         width="230"
+         height="312"
+         rx="10"
+         ry="10"
+         fill="#2C3E50"
+         stroke="none"
+         stroke-width="0"
+         id="monitor-bezel" />
+      <rect
+         x="1403"
+         y="186"
+         width="210"
+         height="292"
+         rx="4"
+         ry="4"
+         fill="#FFFFFF"
+         stroke="#1F2D3A"
+         stroke-width="1"
+         id="monitor-screen" />
+      <path
+         id="monitor-neck"
+         d="M 1487 488 L 1529 488 L 1535 516 L 1481 516 Z"
+         fill="#2C3E50" />
+      <rect
+         x="1450"
+         y="516"
+         width="116"
+         height="13"
+         rx="6"
+         ry="6"
+         fill="#1F2D3A"
+         stroke="none"
+         stroke-width="0"
+         id="monitor-base" />
+    </g>
+    <g
+       id="screen-content">
+      <text
+         x="1413"
+         y="212"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="15"
+         font-weight="bold"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text79">smORF function prediction</text>
+      <path
+         id="prediction-gene-1"
+         d="M 1416 236 L 1435 236 L 1435 230 L 1449 244 L 1435 258 L 1435 252 L 1416 252 Z"
+         fill="#4DA3E8" />
+      <path
+         id="prediction-gene-2"
+         d="M 1453 236 L 1472 236 L 1472 230 L 1486 244 L 1472 258 L 1472 252 L 1453 252 Z"
+         fill="#2FB5A8" />
+      <path
+         id="prediction-gene-3"
+         d="M 1490 236 L 1509 236 L 1509 230 L 1523 244 L 1509 258 L 1509 252 L 1490 252 Z"
+         fill="#7C4DBE" />
+      <path
+         id="prediction-gene-4"
+         d="M 1527 236 L 1546 236 L 1546 230 L 1560 244 L 1546 258 L 1546 252 L 1527 252 Z"
+         fill="#2FB5A8" />
+      <path
+         id="prediction-gene-5"
+         d="M 1564 236 L 1583 236 L 1583 230 L 1597 244 L 1583 258 L 1583 252 L 1564 252 Z"
+         fill="#4DA3E8" />
+      <rect
+         x="1412"
+         y="272"
+         width="192"
+         height="56"
+         rx="6"
+         ry="6"
+         fill="#F7A399"
+         stroke="#E98C7E"
+         stroke-width="1.5"
+         id="prediction-callout" />
+      <text
+         x="1508"
+         y="294"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="17"
+         font-weight="bold"
+         fill="#1A1A1A"
+         text-anchor="middle"
+         id="text80">COG0523</text>
+      <text
+         x="1508"
+         y="316"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="17"
+         font-weight="bold"
+         fill="#1A1A1A"
+         text-anchor="middle"
+         id="text81">ABC transporter</text>
+      <text
+         x="1413"
+         y="352"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="14"
+         font-weight="bold"
+         fill="#1A1A1A"
+         text-anchor="start"
+         id="text82">Confidence</text>
+      <g
+         id="confidence-chart">
+        <line
+           x1="1444"
+           y1="368"
+           x2="1444"
+           y2="458"
+           stroke="#4A5560"
+           stroke-width="1.4"
+           id="line82" />
+        <line
+           x1="1444"
+           y1="458"
+           x2="1608"
+           y2="458"
+           stroke="#4A5560"
+           stroke-width="1.4"
+           id="line83" />
+        <text
+           x="1438"
+           y="372"
+           font-family="Arial, Helvetica, sans-serif"
+           font-size="12"
+           font-weight="normal"
+           fill="#333333"
+           text-anchor="end"
+           id="text83">1.0</text>
+        <line
+           x1="1440"
+           y1="368"
+           x2="1444"
+           y2="368"
+           stroke="#4A5560"
+           stroke-width="1.2"
+           id="line84" />
+        <text
+           x="1438"
+           y="417"
+           font-family="Arial, Helvetica, sans-serif"
+           font-size="12"
+           font-weight="normal"
+           fill="#333333"
+           text-anchor="end"
+           id="text84">0.5</text>
+        <line
+           x1="1440"
+           y1="413"
+           x2="1444"
+           y2="413"
+           stroke="#4A5560"
+           stroke-width="1.2"
+           id="line85" />
+        <text
+           x="1438"
+           y="462"
+           font-family="Arial, Helvetica, sans-serif"
+           font-size="12"
+           font-weight="normal"
+           fill="#333333"
+           text-anchor="end"
+           id="text85">0.0</text>
+        <line
+           x1="1440"
+           y1="458"
+           x2="1444"
+           y2="458"
+           stroke="#4A5560"
+           stroke-width="1.2"
+           id="line86" />
+        <rect
+           x="1462"
+           y="377.0"
+           width="34"
+           height="81.0"
+           rx="2"
+           ry="2"
+           fill="#F4776B"
+           stroke="none"
+           stroke-width="0"
+           id="confidence-bar-cog0523" />
+        <text
+           x="1479"
+           y="474"
+           font-family="Arial, Helvetica, sans-serif"
+           font-size="11"
+           font-weight="normal"
+           fill="#333333"
+           text-anchor="middle"
+           id="text86">COG0523</text>
+        <rect
+           x="1516"
+           y="411.2"
+           width="34"
+           height="46.8"
+           rx="2"
+           ry="2"
+           fill="#4DA3E8"
+           stroke="none"
+           stroke-width="0"
+           id="confidence-bar-cog1364" />
+        <text
+           x="1533"
+           y="474"
+           font-family="Arial, Helvetica, sans-serif"
+           font-size="11"
+           font-weight="normal"
+           fill="#333333"
+           text-anchor="middle"
+           id="text87">COG1364</text>
+        <rect
+           x="1570"
+           y="428.3"
+           width="34"
+           height="29.7"
+           rx="2"
+           ry="2"
+           fill="#2FB5A8"
+           stroke="none"
+           stroke-width="0"
+           id="confidence-bar-cog2189" />
+        <text
+           x="1587"
+           y="474"
+           font-family="Arial, Helvetica, sans-serif"
+           font-size="11"
+           font-weight="normal"
+           fill="#333333"
+           text-anchor="middle"
+           id="text88">COG2189</text>
+      </g>
+    </g>
+  </g>
+  <g
+     id="panel-connectors">
+    <path
+       id="connector-1"
+       d="M 291 303 L 303 303 L 303 294 L 318 315 L 303 336 L 303 327 L 291 327 Z"
+       fill="#111111" />
+    <path
+       id="connector-2"
+       d="M 608 303 L 620 303 L 620 294 L 635 315 L 620 336 L 620 327 L 608 327 Z"
+       fill="#111111" />
+    <path
+       id="connector-3"
+       d="M 1022 303 L 1034 303 L 1034 294 L 1049 315 L 1034 336 L 1034 327 L 1022 327 Z"
+       fill="#111111" />
+    <path
+       id="connector-4"
+       d="M 1352 303 L 1364 303 L 1364 294 L 1379 315 L 1364 336 L 1364 327 L 1352 327 Z"
+       fill="#111111" />
+  </g>
+  <g
+     id="habitat-legend">
+    <g
+       id="legend-soil">
+      <g
+         id="soil-mound-legend"
+         transform="translate(586 596) scale(0.95)">
+        <g
+           id="soil-mound-legend-plant">
+          <path
+             d="M 78 20 C 74 44, 76 60, 80 76"
+             fill="none"
+             stroke="#4CA64C"
+             stroke-width="5"
+             stroke-linecap="round"
+             id="path88" />
+          <path
+             d="M 78 30 C 56 14, 34 20, 30 34 C 44 48, 68 46, 78 34 Z"
+             fill="#4CA64C"
+             id="path89" />
+          <path
+             d="M 80 48 C 100 30, 124 36, 128 50 C 114 64, 90 62, 80 52 Z"
+             fill="#3E9440"
+             id="path90" />
+          <path
+             d="M 78 60 C 60 50, 42 54, 38 66 C 52 78, 72 74, 78 64 Z"
+             fill="#4CA64C"
+             id="path91" />
+        </g>
+        <g
+           id="soil-mound-legend-soil">
+          <path
+             d="M 4 128 C 6 96, 30 78, 56 82 C 68 60, 104 62, 116 82 C 146 78, 168 98, 170 128 Z"
+             fill="#7B4B2A"
+             id="path92" />
+          <circle
+             cx="40"
+             cy="104"
+             r="15"
+             fill="#96603A"
+             id="circle92" />
+          <circle
+             cx="80"
+             cy="94"
+             r="17"
+             fill="#96603A"
+             id="circle93" />
+          <circle
+             cx="124"
+             cy="104"
+             r="14"
+             fill="#96603A"
+             id="circle94" />
+          <circle
+             cx="58"
+             cy="122"
+             r="13"
+             fill="#5E3719"
+             id="circle95" />
+          <circle
+             cx="104"
+             cy="120"
+             r="14"
+             fill="#5E3719"
+             id="circle96" />
+          <circle
+             cx="146"
+             cy="120"
+             r="11"
+             fill="#96603A"
+             id="circle97" />
+          <circle
+             cx="22"
+             cy="120"
+             r="11"
+             fill="#5E3719"
+             id="circle98" />
+        </g>
+      </g>
+      <text
+         x="670"
+         y="758"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="18"
+         font-weight="bold"
+         fill="#111111"
+         text-anchor="middle"
+         id="text98">Soil</text>
+      <text
+         x="670"
+         y="781"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="16px"
+         font-weight="normal"
+         fill="#1a1a1a"
+         text-anchor="middle"
+         id="text99"
+         style="white-space:pre;inline-size:133.681;display:inline"
+         xml:space="preserve"><tspan
+           x="670"
+           y="781"
+           id="tspan1">content here<tspan
+   y="781"
+   id="tspan2"> </tspan></tspan></text>
+    </g>
+    <g
+       id="legend-gut">
+      <g
+         id="dog-legend"
+         transform="translate(860 592) scale(0.92)">
+        <path
+           id="dog-legend-tail"
+           d="M 168 58 C 196 40, 204 8, 188 0 C 186 22, 172 34, 160 42 Z"
+           fill="#B98468" />
+        <rect
+           id="dog-legend-leg-back-1"
+           x="146"
+           y="92"
+           width="17"
+           height="48"
+           rx="8.5"
+           fill="#B98468" />
+        <rect
+           id="dog-legend-leg-front-1"
+           x="62"
+           y="92"
+           width="17"
+           height="48"
+           rx="8.5"
+           fill="#B98468" />
+        <rect
+           id="dog-legend-body"
+           x="48"
+           y="34"
+           width="124"
+           height="68"
+           rx="32"
+           fill="#C89478" />
+        <rect
+           id="dog-legend-leg-back-2"
+           x="128"
+           y="92"
+           width="18"
+           height="50"
+           rx="9"
+           fill="#C89478" />
+        <rect
+           id="dog-legend-leg-front-2"
+           x="80"
+           y="92"
+           width="18"
+           height="50"
+           rx="9"
+           fill="#C89478" />
+        <ellipse
+           id="dog-legend-head"
+           cx="46"
+           cy="44"
+           rx="30"
+           ry="28"
+           fill="#C89478" />
+        <path
+           id="dog-legend-snout"
+           d="M 8 48 C 8 40, 14 36, 24 36 L 42 36 L 42 66 L 24 66 C 14 66, 8 60, 8 52 Z"
+           fill="#D8A98C" />
+        <ellipse
+           id="dog-legend-nose"
+           cx="12"
+           cy="45"
+           rx="7"
+           ry="6"
+           fill="#4A3025" />
+        <circle
+           id="dog-legend-eye"
+           cx="40"
+           cy="34"
+           r="4.2"
+           fill="#3A2418" />
+        <path
+           id="dog-legend-ear"
+           d="M 56 20 C 74 12, 86 24, 84 44 C 82 60, 70 66, 62 58 C 58 46, 54 32, 56 20 Z"
+           fill="#A97054" />
+        <g
+           id="dog-legend-gut-microbes">
+          <circle
+             cx="112"
+             cy="68"
+             r="27"
+             fill="#FFFFFF"
+             stroke="#6B4BB0"
+             stroke-width="3"
+             id="circle99" />
+          <rect
+             x="97.375"
+             y="54.5"
+             width="14.625"
+             height="6.1875"
+             rx="3.09375"
+             fill="#2FB5A8"
+             transform="rotate(-25 104.688 57.875)"
+             id="rect99" />
+          <rect
+             x="113.125"
+             y="60.125"
+             width="13.5"
+             height="6.1875"
+             rx="3.09375"
+             fill="#4DA3E8"
+             transform="rotate(20 119.875 63.5)"
+             id="rect100" />
+          <rect
+             x="99.625"
+             y="71.375"
+             width="14.625"
+             height="6.1875"
+             rx="3.09375"
+             fill="#4DA3E8"
+             transform="rotate(12 106.938 74.75)"
+             id="rect101" />
+          <rect
+             x="115.375"
+             y="75.875"
+             width="12.375"
+             height="5.625"
+             rx="2.8125"
+             fill="#2FB5A8"
+             transform="rotate(-18 121.562 78.6875)"
+             id="rect102" />
+          <path
+             d="M 98.5 84.875 q 4.5 -6.75 9 0 q 4.5 6.75 9 0"
+             fill="none"
+             stroke="#7C4DBE"
+             stroke-width="2.25"
+             stroke-linecap="round"
+             id="path102" />
+        </g>
+      </g>
+      <text
+         x="955"
+         y="758"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="18"
+         font-weight="bold"
+         fill="#111111"
+         text-anchor="middle"
+         id="text102">Gut (dog)</text>
+      <text
+         x="955"
+         y="781"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="16px"
+         font-weight="normal"
+         fill="#1a1a1a"
+         text-anchor="middle"
+         id="text103">contenthere</text>
+    </g>
+    <text
+       xml:space="preserve"
+       id="text112"
+       style="writing-mode:lr-tb;direction:ltr;white-space:pre;shape-inside:url(#rect112);display:inline;fill:#000000" />
+    <text
+       xml:space="preserve"
+       id="text113"
+       style="writing-mode:lr-tb;direction:ltr;white-space:pre;shape-inside:url(#rect113);display:inline;fill:#000000" />
+  </g>
+  <g
+     id="timeline">
+    <line
+       x1="62"
+       y1="848"
+       x2="112"
+       y2="848"
+       stroke="#123A5E"
+       stroke-width="3.5"
+       id="line103" />
+    <line
+       x1="190"
+       y1="848"
+       x2="712"
+       y2="848"
+       stroke="#123A5E"
+       stroke-width="3.5"
+       id="line104" />
+    <line
+       x1="792"
+       y1="848"
+       x2="1342"
+       y2="848"
+       stroke="#123A5E"
+       stroke-width="3.5"
+       id="line105" />
+    <line
+       x1="1422"
+       y1="848"
+       x2="1600"
+       y2="848"
+       stroke="#123A5E"
+       stroke-width="3.5"
+       marker-end="url(#arrowEnd)"
+       id="line106" />
+    <g
+       id="step-1">
+      <circle
+         cx="151"
+         cy="848"
+         r="38"
+         fill="#123A5E"
+         id="circle106" />
+      <text
+         x="151"
+         y="864"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="36"
+         font-weight="bold"
+         fill="#FFFFFF"
+         text-anchor="middle"
+         id="text106">1</text>
+      <text
+         x="232"
+         y="878"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="22"
+         font-weight="bold"
+         fill="#111111"
+         text-anchor="start"
+         id="text107">Detect</text>
+    </g>
+    <g
+       id="step-2">
+      <circle
+         cx="752"
+         cy="848"
+         r="38"
+         fill="#123A5E"
+         id="circle107" />
+      <text
+         x="752"
+         y="864"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="36"
+         font-weight="bold"
+         fill="#FFFFFF"
+         text-anchor="middle"
+         id="text108">2</text>
+      <text
+         x="833"
+         y="878"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="22"
+         font-weight="bold"
+         fill="#111111"
+         text-anchor="start"
+         id="text109">Integrate</text>
+    </g>
+    <g
+       id="step-3">
+      <circle
+         cx="1382"
+         cy="848"
+         r="38"
+         fill="#123A5E"
+         id="circle109" />
+      <text
+         x="1382"
+         y="864"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="36"
+         font-weight="bold"
+         fill="#FFFFFF"
+         text-anchor="middle"
+         id="text110">3</text>
+      <text
+         x="1448"
+         y="878"
+         font-family="Arial, Helvetica, sans-serif"
+         font-size="22"
+         font-weight="bold"
+         fill="#111111"
+         text-anchor="start"
+         id="text111">Predict</text>
+    </g>
+  </g>
+</svg>
