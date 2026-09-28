@@ -6,14 +6,19 @@ The category is decided only by rank-weighted votes of the annotated genes
 around the smORF. The smORF's own COG annotation (if it has one) is never
 used for the prediction, only to check whether the prediction is correct.
 
-Usage:
-    python3 cog_neighbourhood_vote.py --base-dir SmORF_neighbourhoods_26_30
+Edit BASE_DIR below to point at a different folder, then:
+    python3 cog_neighbourhood_vote.py
 """
 
-import argparse
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
+
+BASE_DIR = Path(
+    "/work/microbiome/users/kruthi/intermediate_results/urban_soil/"
+    "Neighbourhood_Analysis_SQL_ge6/SmORF_neighbourhoods_26_30"
+)
+MAX_NEIGHBOURS = 5  # neighbours per side per occurrence (1-5)
 
 RANK_WEIGHTS = {1: 1.0, 2: 0.8, 3: 0.6, 4: 0.4, 5: 0.2}  # rank 1 = closest
 NAME_RE = re.compile(r"^COG\d+-([A-Za-z]+)$")  # e.g. COG0673-CO
@@ -22,7 +27,6 @@ SR = {"S", "R"}
 
 
 def parse_gff(path):
-    """Return the genes in a GFF file, sorted by start coordinate."""
     genes = []
     with open(path) as fh:
         for line in fh:
@@ -64,7 +68,6 @@ def find_target(genes):
 
 
 def neighbour_genes(genes, target, max_n):
-    """Yield (rank, gene) for the closest genes on each side of the target."""
     ordered = genes[::-1] if target["strand"] == "-" else genes
     i = ordered.index(target)
     for side in (ordered[:i][::-1][:max_n], ordered[i + 1:][:max_n]):
@@ -72,7 +75,6 @@ def neighbour_genes(genes, target, max_n):
 
 
 def resolve(votes):
-    """Return (winning category, its % of all votes)."""
     if not votes:
         return "NO_EVIDENCE", 0.0
     top = max(votes.values())
@@ -92,15 +94,14 @@ def confidence_tier(pct):
 
 
 def evaluate(prediction, known):
-    """'True'/'False' if the prediction can be checked, otherwise 'NA'."""
     if not known or prediction in ("UNRESOLVED", "NO_EVIDENCE"):
         return "NA"
     return str(prediction in known)
 
 
-def process_smorf(smorf_dir, max_n):
-    votes = defaultdict(float)         # all categories
-    votes_no_sr = defaultdict(float)   # secondary comparison without S and R
+def process_smorf(smorf_dir):
+    votes = defaultdict(float)
+    votes_no_sr = defaultdict(float)  # secondary comparison without S and R
     known = set()
     occurrences = [p for p in smorf_dir.iterdir() if p.is_dir()]
     n_with_target = 0
@@ -117,7 +118,7 @@ def process_smorf(smorf_dir, max_n):
         n_with_target += 1
         known.update(get_cog_categories(target["name"]))
 
-        for rank, gene in neighbour_genes(genes, target, max_n):
+        for rank, gene in neighbour_genes(genes, target, MAX_NEIGHBOURS):
             for tally, exclude in ((votes, ()), (votes_no_sr, SR)):
                 categories = get_cog_categories(gene["name"], exclude)
                 for category in categories:
@@ -186,22 +187,16 @@ def report_confidence_accuracy(rows):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-dir", required=True, type=Path,
-                        help="Directory containing smORF folders.")
-    parser.add_argument("--max-neighbours", type=int, default=5,
-                        help="Neighbours per side per occurrence (1-5, default: 5).")
-    args = parser.parse_args()
+    if not BASE_DIR.is_dir():
+        print(f"Base directory not found: {BASE_DIR}")
+        return
 
-    if not 1 <= args.max_neighbours <= max(RANK_WEIGHTS):
-        parser.error(f"--max-neighbours must be between 1 and {max(RANK_WEIGHTS)}")
-    if not args.base_dir.is_dir():
-        parser.error(f"Base directory not found: {args.base_dir}")
+    smorf_dirs = sorted(p for p in BASE_DIR.iterdir() if p.is_dir())
+    if not smorf_dirs:
+        print(f"No smORF folders found in {BASE_DIR}")
+        return
 
-    smorf_dirs = sorted(p for p in args.base_dir.iterdir() if p.is_dir())
-    rows = [process_smorf(d, args.max_neighbours) for d in smorf_dirs]
-    if not rows:
-        parser.error(f"No smORF folders found in {args.base_dir}")
+    rows = [process_smorf(d) for d in smorf_dirs]
 
     print_table(rows)
     report_accuracy(rows, "correct", "neighbourhood prediction vs annotated targets")
