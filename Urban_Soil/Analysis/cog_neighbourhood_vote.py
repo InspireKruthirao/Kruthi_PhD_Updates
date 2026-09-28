@@ -1,257 +1,208 @@
-cat > cog_neighbourhood_vote.py << 'PYEOF'
 #!/usr/bin/env python3
 """
-cog_neighbourhood_vote.py
+Usage:
+    python3 cog_neighbourhood_vote.py --base-dir SmORF_neighbourhoods_26_30
 """
 
 import argparse
-import csv
 import re
-import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
-RANK_WEIGHTS = {1: 1.0, 2: 0.8, 3: 0.6, 4: 0.4, 5: 0.2}
-NAME_RE = re.compile(r"^COG\d+-([A-Za-z]+)$")
+RANK_WEIGHTS = {1: 1.0, 2: 0.8, 3: 0.6, 4: 0.4, 5: 0.2}  # rank 1 = closest
+NAME_RE = re.compile(r"^COG\d+-([A-Za-z]+)$")  # e.g. COG0673-CO
 TIE_TOLERANCE = 1e-9
-EXCLUDE_FROM_EXCL_SR = {"S", "R"}
+SR = {"S", "R"}
 
 
-def parse_attributes(attr_str):
-    attrs = {}
-    for field in attr_str.strip().split(";"):
-        field = field.strip()
-        if not field or "=" not in field:
-            continue
-        k, v = field.split("=", 1)
-        attrs[k] = v
-    return attrs
-
-
-def parse_gff(gff_path):
+def parse_gff(path):
+    """Return the genes in a GFF file, sorted by start coordinate."""
     genes = []
-    with open(gff_path) as fh:
+    with open(path) as fh:
         for line in fh:
-            if not line.strip() or line.startswith("#"):
+            fields = line.rstrip("\n").split("\t")
+            if line.startswith("#") or len(fields) != 9:
                 continue
-            f = line.rstrip("\n").split("\t")
-            if len(f) != 9:
+            try:
+                start = int(fields[3])
+            except ValueError:
+                print(f"Warning: bad coordinates in {path}; skipping line")
                 continue
-            attrs = parse_attributes(f[8])
-            genes.append(
-                {
-                    "seqid": f[0],
-                    "start": int(f[3]),
-                    "end": int(f[4]),
-                    "strand": f[6],
-                    "id": attrs.get("ID"),
-                    "name": attrs.get("Name"),
-                    "target": attrs.get("target") == "1",
-                    "note": attrs.get("Note", ""),
-                }
+            attrs = dict(
+                kv.strip().split("=", 1) for kv in fields[8].split(";") if "=" in kv
             )
-    genes.sort(key=lambda g: g["start"])
-    return genes
+            genes.append({
+                "start": start,
+                "strand": fields[6],
+                "name": attrs.get("Name"),
+                "target": attrs.get("target") == "1",
+                "note": attrs.get("Note", ""),
+            })
+    return sorted(genes, key=lambda gene: gene["start"])
 
 
-def get_cog_categories(name, exclude=frozenset()):
-    """'COG3332-S' -> ['S']; 'COG0673-CO' -> ['C','O'] (minus any excluded letters)."""
-    if not name or name == "Unknown":
+def get_cog_categories(name, exclude=()):
+    """COG3332-S -> ['S'];  COG0673-CO -> ['C', 'O']."""
+    match = NAME_RE.match(name or "")
+    if not match:
         return []
-    m = NAME_RE.match(name)
-    if not m:
-        return []
-    letters = [c for c in m.group(1) if c not in exclude]
-    return letters
+    return [letter for letter in match.group(1) if letter not in exclude]
 
 
 def find_target(genes):
-    for g in genes:
-        if g["note"] == "TARGET_smORF":
-            return g
-    for g in genes:
-        if g["target"]:
-            return g
-    return None
+    """Prefer Note=TARGET_smORF, fall back to target=1."""
+    for gene in genes:
+        if gene["note"] == "TARGET_smORF":
+            return gene
+    return next((gene for gene in genes if gene["target"]), None)
 
 
-def strand_relative_order(genes, target):
-    """Reverse gene order if target is on '-' strand, so list order always
-    runs in the direction of transcription. Distances still use real
-    genomic coordinates, unaffected by list order."""
-    if target["strand"] == "-":
-        return list(reversed(genes))
-    return genes
-
-
-def _distance(target, g):
-    """Genomic intergenic gap regardless of list order / strand."""
-    if g["start"] >= target["start"]:
-        return max(g["start"] - target["end"], 0)
-    return max(target["start"] - g["end"], 0)
-
-
-def ranked_neighbours(genes, target, max_n=5):
-    """Per-side adjacency rank (1..max_n each direction), strand-relative."""
-    ordered = strand_relative_order(genes, target)
-    idx = ordered.index(target)
-
-    out = []
-    upstream = ordered[:idx][::-1][:max_n]  # nearest first, reading direction
-    for rank, g in enumerate(upstream, start=1):
-        dist = _distance(target, g)
-        out.append((rank, "upstream", dist, g))
-
-    downstream = ordered[idx + 1:][:max_n]
-    for rank, g in enumerate(downstream, start=1):
-        dist = _distance(target, g)
-        out.append((rank, "downstream", dist, g))
-    return out
-
-
-def find_occurrence_dirs(smorf_dir):
-    return sorted(p for p in smorf_dir.iterdir() if p.is_dir())
+def neighbour_genes(genes, target, max_n):
+    """Yield (rank, gene) for the closest genes on each side of the target."""
+    ordered = genes[::-1] if target["strand"] == "-" else genes
+    i = ordered.index(target)
+    for side in (ordered[:i][::-1][:max_n], ordered[i + 1:][:max_n]):
+        yield from enumerate(side, start=1)
 
 
 def resolve(votes):
+    """Return (winning category, its % of all votes)."""
     if not votes:
         return "NO_EVIDENCE", 0.0
-    max_score = max(votes.values())
-    top = sorted(c for c, v in votes.items() if abs(v - max_score) < TIE_TOLERANCE)
-    if len(top) > 1:
-        return "UNRESOLVED", max_score
-    return top[0], max_score
+    top = max(votes.values())
+    winners = sorted(c for c, score in votes.items() if abs(score - top) < TIE_TOLERANCE)
+    category = winners[0] if len(winners) == 1 else "UNRESOLVED"
+    return category, round(top / sum(votes.values()) * 100, 1)
 
 
-def confidence_tier(top_pct):
-    if top_pct >= 50:
+def confidence_tier(pct):
+    if pct >= 50:
         return "VERY_HIGH"
-    if top_pct >= 40:
+    if pct >= 40:
         return "HIGH"
-    if top_pct >= 30:
+    if pct >= 30:
         return "MEDIUM"
     return "LOW"
 
 
-def process_smorf(smorf_dir, max_n=5):
-    smorf_id = smorf_dir.name
-    occ_dirs = find_occurrence_dirs(smorf_dir)
+def evaluate(prediction, known):
+    """'True'/'False' if the prediction can be checked, otherwise 'NA'."""
+    if not known or prediction in ("UNRESOLVED", "NO_EVIDENCE"):
+        return "NA"
+    return str(prediction in known)
 
-    votes_all = defaultdict(float)
-    votes_excl = defaultdict(float)
-    known_all = set()
-    n_occurrences_used = 0
 
-    for occ_dir in occ_dirs:
-        gff_files = list(occ_dir.glob("*.gff"))
+def process_smorf(smorf_dir, max_n):
+    votes = defaultdict(float)         # all categories
+    votes_no_sr = defaultdict(float)   # secondary comparison without S and R
+    known = set()
+    occurrences = [p for p in smorf_dir.iterdir() if p.is_dir()]
+    n_with_target = 0
+
+    for occurrence in occurrences:
+        gff_files = sorted(occurrence.glob("*.gff"))
         if not gff_files:
             continue
         genes = parse_gff(gff_files[0])
         target = find_target(genes)
         if target is None:
             continue
-        n_occurrences_used += 1
 
-        known_all.update(get_cog_categories(target["name"]))
+        n_with_target += 1
+        known.update(get_cog_categories(target["name"]))
 
-        for rank, _direction, _dist, g in ranked_neighbours(genes, target, max_n):
-            cats_all = get_cog_categories(g["name"])
-            cats_excl = get_cog_categories(g["name"], EXCLUDE_FROM_EXCL_SR)
-            weight = RANK_WEIGHTS[rank]
+        for rank, gene in neighbour_genes(genes, target, max_n):
+            for tally, exclude in ((votes, ()), (votes_no_sr, SR)):
+                categories = get_cog_categories(gene["name"], exclude)
+                for category in categories:
+                    tally[category] += RANK_WEIGHTS[rank] / len(categories)
 
-            if cats_all:
-                share = weight / len(cats_all)
-                for c in cats_all:
-                    votes_all[c] += share
-            if cats_excl:
-                share = weight / len(cats_excl)
-                for c in cats_excl:
-                    votes_excl[c] += share
+    predicted, pct = resolve(votes)
+    predicted_no_sr, pct_no_sr = resolve(votes_no_sr)
+    known_no_sr = known - SR
 
-    prediction_all, score_all = resolve(votes_all)
-    prediction_excl, score_excl = resolve(votes_excl)
+    breakdown = ";".join(
+        f"{c}:{s:.2f}" for c, s in sorted(votes.items(), key=lambda kv: (-kv[1], kv[0]))
+    )
 
-    total_all = sum(votes_all.values()) or 1.0
-    total_excl = sum(votes_excl.values()) or 1.0
-    top_pct_all = round(score_all / total_all * 100, 1) if votes_all else 0.0
-    top_pct_excl = round(score_excl / total_excl * 100, 1) if votes_excl else 0.0
-
-    known_excl = known_all - EXCLUDE_FROM_EXCL_SR
-
-    def eval_correct(prediction, known_set):
-        if not known_set or prediction in ("UNRESOLVED", "NO_EVIDENCE"):
-            return "NA"
-        return str(prediction in known_set)
-
-    correct_all = eval_correct(prediction_all, known_all)
-    correct_excl = eval_correct(prediction_excl, known_excl)
-
-    summary_row = {
-        "smorf_id": smorf_id,
-        "n_occurrences": len(occ_dirs),
-        "n_occurrences_with_target": n_occurrences_used,
-        "confidence_tier": confidence_tier(top_pct_all),
-        "prediction": prediction_all,
-        "top_score_pct": top_pct_all,
-        "vote_breakdown": ";".join(f"{c}:{v:.2f}" for c, v in sorted(votes_all.items(), key=lambda x: -x[1])),
-        "known_category": ",".join(sorted(known_all)),
-        "correct": correct_all,
-        "prediction_excl_SR": prediction_excl,
-        "top_score_pct_excl_SR": top_pct_excl,
-        "known_category_excl_SR": ",".join(sorted(known_excl)),
-        "correct_excl_SR": correct_excl,
+    return {
+        "smorf_id": smorf_dir.name,
+        "n_occurrences": len(occurrences),
+        "n_occurrences_with_target": n_with_target,
+        "target_annotation_status": "ANNOTATED" if known else "UNANNOTATED",
+        "known_category": ",".join(sorted(known)),
+        "predicted_category": predicted,
+        "top_score_pct": pct,
+        "confidence_tier": confidence_tier(pct),
+        "vote_breakdown": breakdown,
+        "correct": evaluate(predicted, known),
+        "prediction_excl_SR": predicted_no_sr,
+        "top_score_pct_excl_SR": pct_no_sr,
+        "known_category_excl_SR": ",".join(sorted(known_no_sr)),
+        "correct_excl_SR": evaluate(predicted_no_sr, known_no_sr),
     }
-    return summary_row
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--base-dir", required=True, type=Path)
-    ap.add_argument("--out-summary", required=True, type=Path)
-    ap.add_argument("--max-neighbours", type=int, default=5)
-    args = ap.parse_args(argv)
+def print_table(rows):
+    print("\n=== RESULTS (one row per smORF) ===")
+    print("\t".join(rows[0]))
+    for row in rows:
+        print("\t".join(str(value) for value in row.values()))
+
+
+def report_accuracy(rows, field, label):
+    evaluated = [r for r in rows if r[field] in ("True", "False")]
+    correct = sum(r[field] == "True" for r in evaluated)
+    print(f"\n=== ACCURACY ({label}) ===")
+    if evaluated:
+        print(f"evaluated: {len(evaluated)}  correct: {correct}  "
+              f"accuracy: {correct / len(evaluated):.3f}")
+    else:
+        print("no annotated smORFs available for evaluation")
+
+
+def report_counts(rows, field, title):
+    print(f"\n=== {title} ===")
+    for value, n in sorted(Counter(r[field] for r in rows).items()):
+        print(f"  {value:<25} n={n:5d}")
+    print(f"  {'TOTAL':<25} n={len(rows):5d}")
+
+
+def report_confidence_accuracy(rows):
+    print("\n=== ACCURACY BY CONFIDENCE TIER ===")
+    for tier in ("VERY_HIGH", "HIGH", "MEDIUM", "LOW"):
+        subset = [r for r in rows
+                  if r["confidence_tier"] == tier and r["correct"] in ("True", "False")]
+        if subset:
+            correct = sum(r["correct"] == "True" for r in subset)
+            print(f"  {tier:<10} n={len(subset):5d}  correct={correct:5d}  "
+                  f"accuracy={correct / len(subset):.3f}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base-dir", required=True, type=Path,
+                        help="Directory containing smORF folders.")
+    parser.add_argument("--max-neighbours", type=int, default=5,
+                        help="Neighbours per side per occurrence (1-5, default: 5).")
+    args = parser.parse_args()
+
+    if not 1 <= args.max_neighbours <= max(RANK_WEIGHTS):
+        parser.error(f"--max-neighbours must be between 1 and {max(RANK_WEIGHTS)}")
+    if not args.base_dir.is_dir():
+        parser.error(f"Base directory not found: {args.base_dir}")
 
     smorf_dirs = sorted(p for p in args.base_dir.iterdir() if p.is_dir())
-    print(f"Found {len(smorf_dirs)} smORF folders under {args.base_dir}", file=sys.stderr)
+    rows = [process_smorf(d, args.max_neighbours) for d in smorf_dirs]
+    if not rows:
+        parser.error(f"No smORF folders found in {args.base_dir}")
 
-    summary_rows = []
-    for i, smorf_dir in enumerate(smorf_dirs, start=1):
-        if i % 200 == 0:
-            print(f"  ... {i}/{len(smorf_dirs)} processed", file=sys.stderr)
-        summary_rows.append(process_smorf(smorf_dir, args.max_neighbours))
-
-    if summary_rows:
-        with open(args.out_summary, "w", newline="") as fh:
-            w = csv.DictWriter(fh, fieldnames=list(summary_rows[0].keys()), delimiter="\t")
-            w.writeheader()
-            w.writerows(summary_rows)
-
-    def report(field, label):
-        evaluated = [r for r in summary_rows if r[field] in ("True", "False")]
-        correct = sum(1 for r in evaluated if r[field] == "True")
-        print(f"\n=== ACCURACY ({label}) ===", file=sys.stderr)
-        if evaluated:
-            print(f"evaluated: {len(evaluated)}  correct: {correct}  accuracy: {correct/len(evaluated):.3f}",
-                  file=sys.stderr)
-        else:
-            print("no known categories available to evaluate against", file=sys.stderr)
-        return evaluated
-
-    print(f"\nsmORFs total: {len(summary_rows)}", file=sys.stderr)
-    report("correct", "ALL categories, matches original 7-step spec")
-    report("correct_excl_SR", "excluding S/R - narrower metric, see docstring")
-
-    print("\n=== ACCURACY BY CONFIDENCE TIER (all categories) ===", file=sys.stderr)
-    for tier in ["VERY_HIGH", "HIGH", "MEDIUM", "LOW"]:
-        subset = [r for r in summary_rows if r["confidence_tier"] == tier and r["correct"] in ("True", "False")]
-        if not subset:
-            continue
-        acc = sum(1 for r in subset if r["correct"] == "True") / len(subset)
-        print(f"  {tier:<10} n={len(subset):5d}  accuracy={acc:.3f}", file=sys.stderr)
-
-    print(f"\nWrote: {args.out_summary}", file=sys.stderr)
+    print_table(rows)
+    report_accuracy(rows, "correct", "neighbourhood prediction vs annotated targets")
+    report_accuracy(rows, "correct_excl_SR", "excluding S/R")
+    report_counts(rows, "predicted_category", "PREDICTED CATEGORY COUNTS")
+    report_confidence_accuracy(rows)
 
 
 if __name__ == "__main__":
     main()
-PYEOF
