@@ -10,3 +10,5 @@ python = ">=3.9"
 
 [tasks]
 predict = "python cog_neighbourhood_vote.py"
+
+
