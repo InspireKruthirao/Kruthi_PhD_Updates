@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 """
+Predict the COG functional category of every smORF from its neighbours.
+
+The category is decided only by rank-weighted votes of the annotated genes
+around the smORF. The smORF's own COG annotation (if it has one) is never
+used for the prediction, only to check whether the prediction is correct.
+
 Usage:
     python3 cog_neighbourhood_vote.py --base-dir SmORF_neighbourhoods_26_30
 """
