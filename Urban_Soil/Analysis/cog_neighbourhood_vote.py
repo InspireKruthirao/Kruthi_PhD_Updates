@@ -1,23 +1,17 @@
 #!/usr/bin/env python3
 """
 Predict the COG functional category of every smORF from its neighbours.
-
-The category is decided only by rank-weighted votes of the annotated genes
-around the smORF. The smORF's own COG annotation (if it has one) is never
-used for the prediction, only to check whether the prediction is correct.
-
-Edit BASE_DIR below to point at a different folder, then:
-    python3 cog_neighbourhood_vote.py
 """
 
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
-BASE_DIR = Path(
+PARENT_DIR = Path(
     "/work/microbiome/users/kruthi/intermediate_results/urban_soil/"
-    "Neighbourhood_Analysis_SQL_ge6/SmORF_neighbourhoods_26_30"
+    "Neighbourhood_Analysis_SQL_ge6"
 )
+BASE_DIRS = sorted(PARENT_DIR.glob("SmORF_neighbourhoods_5*"))
 MAX_NEIGHBOURS = 5  # neighbours per side per occurrence (1-5)
 
 RANK_WEIGHTS = {1: 1.0, 2: 0.8, 3: 0.6, 4: 0.4, 5: 0.2}  # rank 1 = closest
@@ -187,13 +181,17 @@ def report_confidence_accuracy(rows):
 
 
 def main():
-    if not BASE_DIR.is_dir():
-        print(f"Base directory not found: {BASE_DIR}")
+    if not BASE_DIRS:
+        print(f"No SmORF_neighbourhoods_5* folders found under {PARENT_DIR}")
         return
 
-    smorf_dirs = sorted(p for p in BASE_DIR.iterdir() if p.is_dir())
+    print(f"Folders: {', '.join(d.name for d in BASE_DIRS)}")
+
+    smorf_dirs = sorted(
+        p for base in BASE_DIRS for p in base.iterdir() if p.is_dir()
+    )
     if not smorf_dirs:
-        print(f"No smORF folders found in {BASE_DIR}")
+        print("No smORF folders found.")
         return
 
     rows = [process_smorf(d) for d in smorf_dirs]
