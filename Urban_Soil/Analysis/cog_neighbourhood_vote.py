@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Predict the COG functional category of every smORF from its neighbours.
+
 """
 
 import re
@@ -11,7 +12,7 @@ PARENT_DIR = Path(
     "/work/microbiome/users/kruthi/intermediate_results/urban_soil/"
     "Neighbourhood_Analysis_SQL_ge6"
 )
-BASE_DIRS = sorted(PARENT_DIR.glob("SmORF_neighbourhoods_5*"))
+BASE_DIRS = sorted(PARENT_DIR.glob("SmORF_neighbourhoods_*"))
 MAX_NEIGHBOURS = 5  # neighbours per side per occurrence (1-5)
 
 RANK_WEIGHTS = {1: 1.0, 2: 0.8, 3: 0.6, 4: 0.4, 5: 0.2}  # rank 1 = closest
@@ -182,7 +183,7 @@ def report_confidence_accuracy(rows):
 
 def main():
     if not BASE_DIRS:
-        print(f"No SmORF_neighbourhoods_5* folders found under {PARENT_DIR}")
+        print(f"No SmORF_neighbourhoods_* folders found under {PARENT_DIR}")
         return
 
     print(f"Folders: {', '.join(d.name for d in BASE_DIRS)}")
