@@ -10,5 +10,4 @@ python = ">=3.9"
 
 [tasks]
 predict = "python cog_neighbourhood_vote.py"
-
-
+cog-vote = "python Functional_Framework_Analysis.py"
