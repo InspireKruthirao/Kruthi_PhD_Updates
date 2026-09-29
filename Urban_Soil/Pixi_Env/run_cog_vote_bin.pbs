@@ -1,0 +1,16 @@
+#!/bin/bash
+#PBS -N cog_vote
+#PBS -l select=1:ncpus=2:mem=64gb
+#PBS -l walltime=24:00:00
+#PBS -q cpu_batch_exec
+#PBS -j oe
+
+# BIN_DIR, JOB_NAME, LOG_DIR are all set per-job by submit_all_bins.sh via
+# `qsub -N ... -o ... -v BIN_DIR=...` -- don't submit this file directly.
+set -eo pipefail
+export PYTHONNOUSERSITE=1
+
+/home/n12228516/.conda/envs/kruthi/bin/python3 -s -u \
+    /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL_ge6/cog_neighbourhood_vote_bin.py \
+    "$BIN_DIR" \
+    /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL_ge6/results
