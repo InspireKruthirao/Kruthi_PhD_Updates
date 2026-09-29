@@ -1,43 +1,28 @@
 #!/usr/bin/env python3
 """
-Predict the COG functional category of every smORF from its neighbours --
-ONE BIN at a time, so it can be run as a separate PBS job per bin.
-
-Same prediction logic as cog_neighbourhood_vote.py (rank-weighted vote,
-1.0/0.8/0.6/0.4/0.2, up to 5 neighbours per side), unchanged. What's
-different is purely operational:
-
-  - takes ONE SmORF_neighbourhoods_X_Y folder (not the whole parent dir),
-    so several bins can run as separate, simultaneous PBS jobs instead of
-    one long serial job over everything
-  - prints progress every PROGRESS_EVERY smORFs (flush=True), so a PBS
-    log file shows live movement instead of staying silent until the end
-    -- watch it with: tail -f logs/<bin>.log
-  - writes the full per-smORF table to a TSV file instead of printing it
-    (printing millions of rows to a log file is slow and not useful) --
-    only the summary blocks (accuracy, counts, confidence tiers) print to
-    the log, for a quick glance while it's running or after
-
 Usage:
-    python3 cog_neighbourhood_vote_bin.py <bin_dir> [out_dir]
-
-    <bin_dir>  path to one SmORF_neighbourhoods_X_Y folder (required)
-    [out_dir]  where to write <bin_name>_results.tsv (default: bin_dir's
-               parent / "results")
+    python3 Functional_Framework_Analysis.py                     # submit all bins as PBS jobs
+    python3 Functional_Framework_Analysis.py <bin_dir> [out_dir]  # process one bin
 """
-
 import re
+import subprocess
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-MAX_NEIGHBOURS = 5  # neighbours per side per occurrence (1-5)
+# -config -
+PARENT_DIR = Path("/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL_ge6")
+SCRIPT_PATH = Path(__file__).resolve()
+OUT_DIR = PARENT_DIR / "results"
+LOG_DIR = PARENT_DIR / "logs"
+PYTHON_BIN = "/home/n12228516/.conda/envs/kruthi/bin/python3"
+
+MAX_NEIGHBOURS = 5
 RANK_WEIGHTS = {1: 1.0, 2: 0.8, 3: 0.6, 4: 0.4, 5: 0.2}  # rank 1 = closest
-NAME_RE = re.compile(r"^COG\d+-([A-Za-z]+)$")  # e.g. COG0673-CO
+NAME_RE = re.compile(r"^COG\d+-([A-Za-z]+)$")
 TIE_TOLERANCE = 1e-9
 SR = {"S", "R"}
 PROGRESS_EVERY = 500
-
 
 def parse_gff(path):
     genes = []
@@ -65,7 +50,6 @@ def parse_gff(path):
 
 
 def get_cog_categories(name, exclude=()):
-    """COG3332-S -> ['S'];  COG0673-CO -> ['C', 'O']."""
     match = NAME_RE.match(name or "")
     if not match:
         return []
@@ -73,7 +57,6 @@ def get_cog_categories(name, exclude=()):
 
 
 def find_target(genes):
-    """Prefer Note=TARGET_smORF, fall back to target=1."""
     for gene in genes:
         if gene["note"] == "TARGET_smORF":
             return gene
@@ -163,52 +146,15 @@ def process_smorf(smorf_dir):
     }
 
 
-def write_tsv(rows, out_path):
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w") as fh:
-        fh.write("\t".join(rows[0].keys()) + "\n")
-        for row in rows:
-            fh.write("\t".join(str(v) for v in row.values()) + "\n")
-    print(f"\nWrote {len(rows):,} rows: {out_path}")
-
-
-def report_accuracy(rows, field, label):
+def accuracy_stats(rows, field):
     evaluated = [r for r in rows if r[field] in ("True", "False")]
     correct = sum(r[field] == "True" for r in evaluated)
-    print(f"\n=== ACCURACY ({label}) ===")
-    if evaluated:
-        print(f"evaluated: {len(evaluated)}  correct: {correct}  "
-              f"accuracy: {correct / len(evaluated):.3f}")
-    else:
-        print("no annotated smORFs available for evaluation")
+    return len(evaluated), correct
 
 
-def report_counts(rows, field, title):
-    print(f"\n=== {title} ===")
-    for value, n in sorted(Counter(r[field] for r in rows).items()):
-        print(f"  {value:<25} n={n:5d}")
-    print(f"  {'TOTAL':<25} n={len(rows):5d}")
+# -run one bin -
 
-
-def report_confidence_accuracy(rows):
-    print("\n=== ACCURACY BY CONFIDENCE TIER ===")
-    for tier in ("VERY_HIGH", "HIGH", "MEDIUM", "LOW"):
-        subset = [r for r in rows
-                  if r["confidence_tier"] == tier and r["correct"] in ("True", "False")]
-        if subset:
-            correct = sum(r["correct"] == "True" for r in subset)
-            print(f"  {tier:<10} n={len(subset):5d}  correct={correct:5d}  "
-                  f"accuracy={correct / len(subset):.3f}")
-
-
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python3 cog_neighbourhood_vote_bin.py <bin_dir> [out_dir]")
-        sys.exit(1)
-
-    bin_dir = Path(sys.argv[1])
-    out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else bin_dir.parent / "results"
-
+def run_bin(bin_dir, out_dir):
     if not bin_dir.is_dir():
         print(f"Bin folder not found: {bin_dir}")
         sys.exit(1)
@@ -226,14 +172,87 @@ def main():
         if number % PROGRESS_EVERY == 0 or number == total:
             print(f"[{bin_dir.name}] {number:,}/{total:,} smORFs processed", flush=True)
 
-    write_tsv(rows, out_dir / f"{bin_dir.name}_results.tsv")
+    out_path = out_dir / f"{bin_dir.name}_results.tsv"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w") as fh:
+        fh.write("\t".join(rows[0].keys()) + "\n")
+        for row in rows:
+            fh.write("\t".join(str(v) for v in row.values()) + "\n")
+    print(f"\nWrote {len(rows):,} rows: {out_path}")
 
     print(f"\n########## [{bin_dir.name}] SUMMARY ##########")
-    report_accuracy(rows, "correct", "neighbourhood prediction vs annotated targets")
-    report_accuracy(rows, "correct_excl_SR", "excluding S/R")
-    report_counts(rows, "predicted_category", "PREDICTED CATEGORY COUNTS")
-    report_confidence_accuracy(rows)
+    for field, label in (("correct", "neighbourhood prediction vs annotated targets"),
+                          ("correct_excl_SR", "excluding S/R")):
+        n, correct = accuracy_stats(rows, field)
+        print(f"\n=== ACCURACY ({label}) ===")
+        print(f"evaluated: {n}  correct: {correct}  accuracy: {correct / n:.3f}"
+              if n else "no annotated smORFs available for evaluation")
+
+    print("\n=== PREDICTED CATEGORY COUNTS ===")
+    for value, n in sorted(Counter(r["predicted_category"] for r in rows).items()):
+        print(f"  {value:<25} n={n:5d}")
+    print(f"  {'TOTAL':<25} n={len(rows):5d}")
+
+    print("\n=== ACCURACY BY CONFIDENCE TIER ===")
+    for tier in ("VERY_HIGH", "HIGH", "MEDIUM", "LOW"):
+        n, correct = accuracy_stats([r for r in rows if r["confidence_tier"] == tier], "correct")
+        if n:
+            print(f"  {tier:<10} n={n:5d}  correct={correct:5d}  accuracy={correct / n:.3f}")
+
     print(f"[{bin_dir.name}] DONE", flush=True)
+
+
+# -submit one PBS job per bin -
+
+def submit_all():
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    bins = sorted(p for p in PARENT_DIR.glob("SmORF_neighbourhoods_*") if p.is_dir())
+    if not bins:
+        print(f"No SmORF_neighbourhoods_* folders found under {PARENT_DIR}")
+        sys.exit(1)
+
+    print(f"Found {len(bins)} bins. Submitting one job per bin...")
+    for bin_path in bins:
+        bin_name = bin_path.name
+        job_script = f"""#!/bin/bash
+#PBS -l select=1:ncpus=2:mem=64gb
+#PBS -l walltime=24:00:00
+#PBS -q cpu_batch_exec
+
+set -eo pipefail
+export PYTHONNOUSERSITE=1
+
+{PYTHON_BIN} -s -u "{SCRIPT_PATH}" "{bin_path}" "{OUT_DIR}"
+"""
+        result = subprocess.run(
+            ["qsub", "-N", f"cog_{bin_name}", "-o", str(LOG_DIR / f"{bin_name}.log"), "-j", "oe"],
+            input=job_script, text=True, capture_output=True,
+        )
+        job_id = result.stdout.strip()
+        print(f"  {bin_name} -> {job_id}")
+
+    print("\nAll jobs submitted. Watch progress live with:")
+    print(f"  tail -f {LOG_DIR}/*.log")
+    print("\nCheck job status with:")
+    print("  qstat -u $USER")
+
+
+def main():
+    if len(sys.argv) == 1:
+        submit_all()
+        return
+
+    bin_dir = Path(sys.argv[1])
+    if not bin_dir.is_dir():
+        print("Usage:")
+        print("  python3 Functional_Framework_Analysis.py                     # submit all bins as PBS jobs")
+        print("  python3 Functional_Framework_Analysis.py <bin_dir> [out_dir]  # process one bin")
+        sys.exit(1)
+
+    out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else OUT_DIR
+    run_bin(bin_dir, out_dir)
 
 
 if __name__ == "__main__":
