@@ -10,11 +10,20 @@ PART 2 - EVALUATE  each combination is scored ONLY on smORFs that already
 
     python3 sweep_db.py [db]        (default db: smorfs_all_bins.sqlite)
 
+The input is the database written by build_all_bins_db.py: one row per
+(bin, smORF), with a JSON list of the smORF's occurrences (one per genome
+it was found in). Each occurrence lists its neighbour genes as
+[rank, [COG letters]], where rank is the distance in genes from the smORF
+(1 = adjacent; up to two genes per rank, one on each side), and the
+smORF's own COG letters (target_categories), which are what is predicted.
+A multi-letter category such as 'EG' is stored as its letters ['E', 'G'].
+
 All results are percentages. combinations_results.csv is the sheet: one
 row per rule (C001...C100) with what it does and how it scored.
 C027 (all categories) and C028 (excluding S and R) are the original method.
 
-To add a rule: add it in build_combinations(). Nothing else changes.
+To add a rule: add it at the end of build_combinations(). Nothing else
+changes.
 """
 
 import csv
@@ -57,6 +66,13 @@ OCCS_TYPE = pl.List(pl.Struct({
 
 @dataclass
 class Data:
+    """Everything loaded from the database (see load_db).
+
+    Categories are handled as integer codes, indices into labels. The
+    neighbours are stored as flat numpy arrays (nb), one entry per
+    (neighbour gene, category), so a gene with categories 'EG' has two
+    entries. The methods (left, voters, counts) select and group these
+    entries, and cache the results as many rules share them."""
     smorfs: pl.DataFrame  # smorf (row number), bin, smorf_id, known_category, annotated
     targets: pl.DataFrame  # smorf, cat: known categories, without duplicates
     labels: list          # categories, then NO_CALL; methods return indices into it
@@ -74,15 +90,20 @@ class Data:
     _counts: dict = field(default_factory=dict)  # cache for counts()
 
     def code(self, label):
+        """The code of a category or NO_CALL label"""
         return self.labels.index(label)
 
     def excluded(self, codes, exclude):
+        """For each category code in codes: is its category in exclude?"""
         return np.array([c in exclude for c in self.labels[:self.n_cats]])[codes]
 
     def left(self, exclude):
-        """For each entry of nb, when the categories in exclude are dropped: is
-        it kept, how many categories its neighbour gene has left (k) and where
-        its vote is in the table of votes by (rank, k, code) (see tally)"""
+        """For each entry of nb, when the categories in exclude are dropped:
+
+        keep  is the entry kept (its category is not excluded)?
+        k     how many categories its neighbour gene has left
+        vote  where its vote is in the table of votes by (rank, k, code)
+              (see vote_table)"""
         if exclude not in self._left:
             nb = self.nb
             keep = ~self.excluded(nb["code"], exclude)
@@ -93,7 +114,10 @@ class Data:
         return self._left[exclude]
 
     def voters(self, n, exclude, multi, columns):
-        """The entries of nb that vote: the given columns and vote (see left)"""
+        """The entries of nb that vote: those at rank <= n whose category is
+        not excluded and, if multi is "ignore", whose gene has a single
+        category left. Returns the given columns of nb for these entries,
+        plus vote (see left), as a new dict that the caller may modify."""
         sel = (n, exclude, multi == "ignore", columns)
         if sel not in self._voters:
             keep, k, vote = self.left(exclude)
@@ -107,7 +131,10 @@ class Data:
 
     def counts(self, exclude):
         """The entries of nb kept by left(exclude), counted by (key, rank, k):
-        arrays key (sorted), rank, k, vote (as in left) and n (the count)"""
+        arrays key (sorted), rank, k, vote (as in left) and n (the count).
+
+        All the entries in a group cast the same vote, so a rule can add up
+        its votes from these counts, without going through every entry."""
         if exclude not in self._counts:
             keep, _, vote = self.left(exclude)
             ks = self.nb["ncat"].max() + 1
@@ -121,6 +148,13 @@ class Data:
 
 
 def load_db(db_path):
+    """Read every smORF from the database at db_path into a Data.
+
+    smORFs are numbered (smorf) in (bin, smorf_id) order, occurrences (occ)
+    and neighbour genes (ent) in file order. Neighbours without a category
+    are dropped from nb, but still count for ord. A smORF is annotated if
+    any of its occurrences has target categories (known_category lists
+    them all, sorted and comma-separated)."""
     conn = sqlite3.connect(db_path)
     raw = pl.DataFrame(conn.execute(
         "SELECT bin_name, smorf_id, occurrences_json FROM smorfs ORDER BY bin_name, smorf_id"
@@ -169,8 +203,12 @@ def run_starts(a):
 
 
 def resolve(d, key, v, n_groups):
-    """The category with most votes v in each group: (code, pct) per group.
-    key is group * n_cats + code, for every vote."""
+    """The category with most votes in each group, for groups 0...n_groups-1.
+
+    key is group * n_cats + code for every vote, and v its weight. Returns
+    two arrays with one value per group: the winning code (UNRESOLVED on a
+    tie, NO_EVIDENCE if the group got no votes) and the winner's share of
+    the group's votes, in % (0 if no votes)."""
     votes = np.bincount(key, weights=v, minlength=n_groups * d.n_cats)
     present = np.zeros(n_groups * d.n_cats, dtype=bool)
     present[key] = True
@@ -179,7 +217,8 @@ def resolve(d, key, v, n_groups):
 
 
 def pick(d, keys, x, n_groups):
-    """As resolve, from the total votes x of every key (sorted, without duplicates)"""
+    """As resolve, but from votes already added up: x is the total vote of
+    each key in keys (sorted, without duplicates)"""
     g = keys // d.n_cats
     starts = run_starts(g)
     if not len(g):
@@ -198,6 +237,7 @@ def pick(d, keys, x, n_groups):
 
 
 def select(arrays, keep, columns):
+    """The given columns of the dict of arrays, only where the mask keep is True"""
     if keep.all():
         return {c: arrays[c] for c in columns}
     keep = np.flatnonzero(keep)  # (faster than indexing every column with a mask)
@@ -205,8 +245,12 @@ def select(arrays, keep, columns):
 
 
 def vote_table(d, weights, multi, background):
-    """The vote of a neighbour category, by (rank, k, code), flattened; k:
-    categories left for this neighbour (see Data.left)"""
+    """The vote of a neighbour category, by (rank, k, code), flattened so
+    that it can be indexed by the vote arrays of Data.left; k is the number
+    of categories left for the neighbour gene.
+
+    The vote is the weight of the rank, divided by k if multi is "split",
+    and divided by background[code] if a background is given."""
     v = np.array([np.nan] + [weights[r] for r in range(1, MAX_RANK + 1)])[:, None, None]
     ks = d.nb["ncat"].max() + 1
     if multi == "split":  # (with "ignore", k is 1)
@@ -217,8 +261,9 @@ def vote_table(d, weights, multi, background):
 
 
 def tally(d, weights, n, exclude, multi, background, columns=("key",)):
-    """The neighbour votes: the given columns of nb and v, with one entry per
-    (neighbour, category) that votes, in the order they are cast."""
+    """The neighbour votes: the given columns of nb and v (the vote, see
+    vote_table), with one entry per (neighbour, category) that votes (see
+    Data.voters), in file order."""
     x = d.voters(n, tuple(exclude), multi, columns)
     x["v"] = vote_table(d, weights, multi, background).take(x.pop("vote"))
     return x
@@ -227,13 +272,24 @@ def tally(d, weights, n, exclude, multi, background, columns=("key",)):
 # ========================================================= the methods ==
 # every method: (data, **settings) -> (predicted_category, top_score_pct),
 # two arrays with one value per smORF; categories are indices into d.labels
+# the controls take exclude only so that they are evaluated with it
 
 def weighted_vote(d, curve="linear", n=5, exclude=(), multi="split",
                   background=None, cutoff=None, min_occ=None):
-    """Neighbours vote for their category, closer neighbours count more.
-    Options: drop categories, handle multi-letter categories, down-weight
-    common categories, require a minimum winning share, or require a
-    minimum number of occurrences that contribute votes."""
+    """Neighbours vote for their category, closer neighbours count more;
+    the votes of all occurrences of a smORF are added up.
+
+    curve       the weight of each rank, a key of WEIGHTS
+    n           only neighbours with rank <= n vote
+    exclude     categories that get no votes (the gene's other categories
+                still do)
+    multi       a gene with several categories: "split" its vote between
+                them, give each the "full" vote, or "ignore" the gene
+    background  if given, the vote for each category is divided by it
+    cutoff      predict LOW_CONFIDENCE if the winner has < cutoff % of the
+                vote
+    min_occ     predict TOO_FEW_OCCURRENCES if fewer than min_occ
+                occurrences contribute votes"""
     # the votes are added up from the counts of identical votes (see Data.counts)
     c = d.counts(tuple(exclude))
     use = c["rank"] <= n
@@ -258,8 +314,14 @@ def weighted_vote(d, curve="linear", n=5, exclude=(), multi="split",
 
 
 def majority(d, n=5, k=4, exclude=()):
-    """Take the n closest neighbours of every occurrence; predict only if
-    at least k out of n of them agree on one category."""
+    """Take the n closest neighbours of every occurrence; predict the most
+    common category only if at least a fraction k/n of these neighbours
+    have it.
+
+    The neighbours of all occurrences are pooled. Neighbours without a
+    category still take one of the n places but are not counted, nor are
+    those with only excluded categories. A gene with several categories
+    counts for each. On ties, the category counted first wins."""
     nb = d.nb_by_rank
     keep = (nb["ord"] < n) & ~d.excluded(nb["code"], exclude)
     key, ent = select(nb, keep, ("key", "ent")).values()
@@ -278,8 +340,9 @@ def majority(d, n=5, k=4, exclude=()):
 
 
 def consensus(d, curve="linear", n=5, exclude=()):
-    """Each occurrence (genome) makes its own prediction; then the
-    occurrences vote, one vote each."""
+    """Each occurrence (genome) makes its own prediction, by weighted vote
+    of its neighbours; then the occurrences vote, one vote each (those
+    with a tie do not vote). pct is the winner's share of these votes."""
     x = tally(d, WEIGHTS[curve], n, exclude, "split", None, ("occ", "code"))
     new = np.r_[True, x["occ"][1:] != x["occ"][:-1]][:len(x["occ"])]  # number the occurrences that vote 0, 1, ...
     occ_pred, _ = resolve(d, (np.cumsum(new) - 1) * d.n_cats + x["code"], x["v"], new.sum())
@@ -303,8 +366,9 @@ def control_random(d, categories, freqs, rng, exclude=()):
 
 
 def control_shuffled(d, rng, exclude=()):
-    """CONTROL: run the original method on the neighbours of a DIFFERENT,
-    randomly chosen smORF."""
+    """CONTROL: run the original method (C027) on the neighbours of a
+    DIFFERENT, randomly chosen smORF (drawn with replacement, so it is
+    occasionally the same one)."""
     n = d.smorfs.height
     other = np.array([rng.randrange(n) for _ in range(n)])
     pred, pct = weighted_vote(d)
@@ -314,6 +378,12 @@ def control_shuffled(d, rng, exclude=()):
 # ================================================= the 100 combinations ==
 
 def build_combinations(d):
+    """The list of rules, each a dict: id (C001...), group, rule (the text
+    in the results), fn (the method), settings (its arguments) and exclude
+    (the categories ignored, also when evaluating).
+
+    IDs are given in order, so a rule added anywhere but at the end changes
+    the IDs of the rules after it."""
     combos = []
 
     def add(group, rule, fn, **settings):
@@ -411,7 +481,10 @@ def build_combinations(d):
 # ===================================================== PART 1: PREDICT ==
 
 def predict(d, combos):
-    """Every combination predicts for every smORF, annotated or not."""
+    """Every combination predicts for every smORF, annotated or not.
+
+    Writes predictions_all_smorfs.tsv (one row per smORF, one column per
+    rule) and returns the predictions and their pct, as dicts by rule ID."""
     preds, pcts = {}, {}
     for c in combos:
         t = time.time()
@@ -433,11 +506,18 @@ def predict(d, combos):
 # ==================================================== PART 2: EVALUATE ==
 
 def pct(a, b):
+    """a / b as a percentage string, or "" if b is 0"""
     return f"{a / b * 100:.1f}" if b else ""
 
 
 def evaluate(d, combos, preds, pcts):
-    """Score each combination ONLY on smORFs with a known COG category."""
+    """Score each combination ONLY on smORFs with a known COG category.
+
+    A smORF is evaluated if the rule predicts a category for it and it has
+    a known category not excluded by the rule; the prediction is correct if
+    it is any of its known categories. Coverage is the share of annotated
+    smORFs that are evaluated. Accuracy is also given per confidence tier
+    (TIERS, by pct). Writes combinations_results.csv and results_by_bin.csv."""
     bins = sorted(set(d.smorfs["bin"].to_list()))
     bin_of = d.smorfs["bin"].cast(pl.Enum(bins)).to_physical().to_numpy()
     annotated = d.smorfs["annotated"].to_numpy()
