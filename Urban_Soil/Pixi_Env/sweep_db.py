@@ -32,6 +32,7 @@ SR = ("S", "R")
 NO_CALL = ["NO_EVIDENCE", "UNRESOLVED", "LOW_CONFIDENCE", "TOO_FEW_OCCURRENCES"]
 TIERS = (("VERY_HIGH", 50), ("HIGH", 40), ("MEDIUM", 30), ("LOW", 0))
 TIE_TOLERANCE = 1e-9
+PCT_TOLERANCE = 1e-9  # scores are not rounded: exactly 50% may come out as 49.99999999999999
 
 MAX_RANK = 10
 WEIGHTS = {  # weight of the neighbour at each distance (rank 1 = closest)
@@ -114,71 +115,33 @@ def load_db(db_path):
 
 
 # ======================================================= vote helpers ==
-# The methods vote for all smORFs at once, with numpy arrays, and give the
-# same results as voting one smORF at a time in Python: a category's votes
-# are added in the same order (np.add.at), totals are summed like Python's
-# sum() (py_sum) and percentages rounded with Python's round() (round1).
-
-def py_sum(group, values, n_groups):
-    """Python's sum() of the values of each group (groups contiguous and in
-    order). Since Python 3.12, sum() uses Neumaier's compensated summation."""
-    starts = run_starts(group)
-    size = np.diff(np.r_[starts, len(group)])
-    total = np.zeros(n_groups)
-    comp = np.zeros(n_groups)
-    for j in range(size.max() if len(size) else 0):
-        i = starts[size > j] + j  # the j-th value of each group
-        g, x = group[i], values[i]
-        if sys.version_info < (3, 12):
-            total[g] += x
-            continue
-        f = total[g]
-        t = f + x
-        comp[g] += np.where(np.abs(f) >= np.abs(x), (f - t) + x, (x - t) + f)
-        total[g] = t
-    return np.where((comp != 0) & np.isfinite(comp), total + comp, total)
-
 
 def run_starts(a):
     """Where each run of equal values in a starts"""
     return np.flatnonzero(np.r_[True, a[1:] != a[:-1]]) if len(a) else np.zeros(0, dtype=int)
 
 
-def round1(pct):
-    """Python's round(x, 1) (numpy rounds differently on ties)"""
-    u, inv = np.unique(pct, return_inverse=True)
-    return np.array([round(x, 1) for x in u.tolist()])[inv]
-
-
-def resolve(d, group, code, v, n_groups, with_pct=True):
-    """The category with most votes in each group: (code, pct) per group,
-    pct not yet rounded. The votes v (for category code) are in the order they
-    are cast; the total is over categories in the order of their first vote."""
+def resolve(d, group, code, v, n_groups):
+    """The category with most votes v in each group: (code, pct) per group."""
     key = group.astype(np.int64) * d.n_cats + code
-    votes = np.zeros(n_groups * d.n_cats)
-    np.add.at(votes, key, v)
-    if with_pct:
-        first = np.full(n_groups * d.n_cats, len(key))
-        np.minimum.at(first, key, np.arange(len(key)))
-        keys = key[first[key] == np.arange(len(key))]  # by group, then first vote
-    else:
-        present = np.zeros(n_groups * d.n_cats, dtype=bool)
-        present[key] = True
-        keys = np.flatnonzero(present)  # by group, then category
+    votes = np.bincount(key, weights=v, minlength=n_groups * d.n_cats)
+    present = np.zeros(n_groups * d.n_cats, dtype=bool)
+    present[key] = True
+    keys = np.flatnonzero(present)  # by group, then category
     g, x = keys // d.n_cats, votes[keys]
     starts = run_starts(g)
-    top = np.maximum.reduceat(x, starts) if len(g) else np.zeros(0)
+    if not len(g):
+        return np.full(n_groups, d.code("NO_EVIDENCE")), np.zeros(n_groups)
+    top = np.maximum.reduceat(x, starts)
     win = np.abs(x - np.repeat(top, np.diff(np.r_[starts, len(g)]))) < TIE_TOLERANCE
-    nwin = np.add.reduceat(win.astype(int), starts) if len(g) else np.zeros(0, int)
-    winner = np.maximum.reduceat(np.where(win, keys % d.n_cats, -1), starts) if len(g) else nwin
+    nwin = np.add.reduceat(win.astype(int), starts)
+    winner = np.maximum.reduceat(np.where(win, keys % d.n_cats, -1), starts)
 
     voted = g[starts]
     pred = np.full(n_groups, d.code("NO_EVIDENCE"))
     pred[voted] = np.where(nwin == 1, winner, d.code("UNRESOLVED"))
-    if not with_pct:
-        return pred, None
     pct = np.zeros(n_groups)
-    pct[voted] = top / py_sum(g, x, n_groups)[voted] * 100
+    pct[voted] = top / np.add.reduceat(x, starts) * 100
     return pred, pct
 
 
@@ -201,8 +164,8 @@ def tally(d, weights, n, exclude, multi, background):
     v = w[x["rank"]]
     if multi != "full":
         v = v / k
-    if background:
-        v = v / np.array([background.get(c, np.nan) for c in d.labels[:d.n_cats]])[x["code"]]
+    if background is not None:
+        v = v / background[x["code"]]
     x["v"] = v
     return x
 
@@ -220,9 +183,11 @@ def weighted_vote(d, curve="linear", n=5, exclude=(), multi="split",
     x = tally(d, WEIGHTS[curve], n, exclude, multi, background)
     n_smorfs = d.smorfs.height
     pred, pct = resolve(d, x["smorf"], x["code"], x["v"], n_smorfs)
-    pct = round1(pct)
     if cutoff:
-        pred = np.where((pred < d.n_cats) & (pct < cutoff), d.code("LOW_CONFIDENCE"), pred)
+        # predict only if pct >= cutoff; the tolerance makes a winner with exactly
+        # the cutoff share pass however rounding errors in the sums fall
+        low = pct < cutoff - PCT_TOLERANCE
+        pred = np.where((pred < d.n_cats) & low, d.code("LOW_CONFIDENCE"), pred)
     if min_occ:
         few = np.bincount(x["smorf"][run_starts(x["occ"])], minlength=n_smorfs) < min_occ
         pred = np.where(few, d.code("TOO_FEW_OCCURRENCES"), pred)
@@ -248,17 +213,16 @@ def majority(d, n=5, k=4, exclude=()):
     share = np.divide(top, total, out=np.zeros(n_smorfs), where=total > 0)
     agree = (total > 0) & (share >= k / n)
     return (np.where(agree, top_cat, d.code("NO_EVIDENCE")),
-            round1(np.where(agree, share * 100, 0.0)))
+            np.where(agree, share * 100, 0.0))
 
 
 def consensus(d, curve="linear", n=5, exclude=()):
     """Each occurrence (genome) makes its own prediction; then the
     occurrences vote, one vote each."""
     x = tally(d, WEIGHTS[curve], n, exclude, "split", None)
-    occ_pred, _ = resolve(d, x["occ"], x["code"], x["v"], len(d.occ_smorf), with_pct=False)
+    occ_pred, _ = resolve(d, x["occ"], x["code"], x["v"], len(d.occ_smorf))
     occs = np.flatnonzero(occ_pred < d.n_cats)
-    pred, pct = resolve(d, d.occ_smorf[occs], occ_pred[occs], np.ones(len(occs)), d.smorfs.height)
-    return pred, round1(pct)
+    return resolve(d, d.occ_smorf[occs], occ_pred[occs], np.ones(len(occs)), d.smorfs.height)
 
 
 def control_always(d, category, exclude=()):
@@ -320,15 +284,9 @@ def build_combinations(d):
 
     # D. down-weight categories that are common everywhere (6)
     near = d.nb["rank"] <= 5
-    code = d.nb["code"][near]
-    background = np.zeros(d.n_cats)
-    np.add.at(background, code, 1 / d.nb["ncat"][near])
-    first = np.full(d.n_cats, len(code))
-    np.minimum.at(first, code, np.arange(len(code)))
-    background = {d.labels[c]: float(background[c]) for c in sorted(np.flatnonzero(first < len(code)),
-                                                             key=lambda c: first[c])}
-    mean = sum(background.values()) / len(background) if background else 1
-    background = {c: v / mean for c, v in background.items()}
+    background = np.bincount(d.nb["code"][near], weights=1 / d.nb["ncat"][near], minlength=d.n_cats)
+    seen = np.bincount(d.nb["code"][near], minlength=d.n_cats) > 0
+    background = background / (background[seen].mean() if seen.any() else 1)
     for curve, n in (("linear", 5), ("steeper", 5), ("steeper", 3)):
         for cname, ex in cats_opts:
             add("D. Down-weight common categories", f"{curve} weights, {n} neighbours, votes divided by "
@@ -422,7 +380,7 @@ def evaluate(d, combos, preds, pcts):
 
     tier = pl.lit(None, dtype=pl.String)
     for t, low in reversed(TIERS):
-        tier = pl.when(pl.col("pct") >= low).then(pl.lit(t)).otherwise(tier)
+        tier = pl.when(pl.col("pct") >= low - PCT_TOLERANCE).then(pl.lit(t)).otherwise(tier)
     made = ~pl.col("pred").is_in(NO_CALL)
     ev = made & pl.col("has_known")
     ok = ev & pl.col("ok")
