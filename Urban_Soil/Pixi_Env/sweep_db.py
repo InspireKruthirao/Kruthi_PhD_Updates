@@ -23,7 +23,7 @@ import sqlite3
 import sys
 import time
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import polars as pl
@@ -64,16 +64,45 @@ class Data:
     occ_smorf: np.ndarray  # smORF of each occurrence
     nb: dict              # numpy arrays, one entry per neighbour category, in file
                           # order: smorf, occ, ent (neighbour gene), rank, code (of
-                          # the category), ncat (number of categories of the
-                          # gene), ord (position of the gene in its occurrence
-                          # when sorted by rank, counting genes without category)
+                          # the category), key (smorf * n_cats + code), ncat (number
+                          # of categories of the gene), ord (position of the gene in
+                          # its occurrence when sorted by rank, counting genes
+                          # without category)
     nb_by_rank: dict      # nb, with the genes of each occurrence sorted by rank
+    _left: dict = field(default_factory=dict)    # cache for left()
+    _voters: dict = field(default_factory=dict)  # cache for voters()
 
     def code(self, label):
         return self.labels.index(label)
 
     def excluded(self, codes, exclude):
-        return np.isin(codes, [i for i, c in enumerate(self.labels[:self.n_cats]) if c in exclude])
+        return np.array([c in exclude for c in self.labels[:self.n_cats]])[codes]
+
+    def left(self, exclude):
+        """For each entry of nb, when the categories in exclude are dropped: is
+        it kept, how many categories its neighbour gene has left (k) and where
+        its vote is in the table of votes by (rank, k, code) (see tally)"""
+        if exclude not in self._left:
+            nb = self.nb
+            keep = ~self.excluded(nb["code"], exclude)
+            starts = run_starts(nb["ent"])  # the categories of a gene are next to each other
+            k = np.repeat(np.add.reduceat(keep.astype(np.int32), starts), np.diff(np.r_[starts, len(keep)]))
+            vote = (nb["rank"].astype(np.int32) * (nb["ncat"].max() + 1) + k) * self.n_cats + nb["code"]
+            self._left[exclude] = keep, k, vote
+        return self._left[exclude]
+
+    def voters(self, n, exclude, multi, columns):
+        """The entries of nb that vote: the given columns and vote (see left)"""
+        sel = (n, exclude, multi == "ignore", columns)
+        if sel not in self._voters:
+            keep, k, vote = self.left(exclude)
+            keep = keep & (self.nb["rank"] <= n)
+            if multi == "ignore":
+                keep &= k == 1
+            if len(self._voters) == 2:  # keep the last two: consecutive rules often share them
+                del self._voters[next(iter(self._voters))]
+            self._voters[sel] = select({**self.nb, "vote": vote}, keep, columns + ("vote",))
+        return dict(self._voters[sel])
 
 
 def load_db(db_path):
@@ -87,13 +116,15 @@ def load_db(db_path):
     step = -(-raw.height // 64)  # parse the JSON in chunks, in parallel
     occs = (pl.concat([raw.slice(i, step).lazy().select(
         "smorf", pl.col("json").str.replace_all(NEIGHBOUR, NEIGHBOUR_AS_OBJECT)
-        .str.json_decode(OCCS_TYPE).alias("o")) for i in range(0, raw.height, step)], parallel=True)
+        .str.json_decode(OCCS_TYPE).alias("o")).explode("o", empty_as_null=True).drop_nulls("o")
+        for i in range(0, raw.height, step)], parallel=True)
             .collect()
-            .explode("o", empty_as_null=True).drop_nulls("o").with_row_index("occ").unnest("o"))
+            .with_row_index("occ").unnest("o"))
 
-    nb = (occs.select("smorf", "occ", "neighbours")
+    nb = (occs.lazy().select("smorf", "occ", "neighbours")
           .explode("neighbours", empty_as_null=True).drop_nulls("neighbours")
           .with_row_index("ent").unnest("neighbours")
+          .collect(engine="streaming")  # (explodes in parallel)
           .with_columns(ncat=pl.col("cats").list.len(),
                         ord=pl.col("rank").rank("ordinal").over("occ") - 1)  # ties: file order
           .explode("cats", empty_as_null=True).rename({"cats": "cat"}))
@@ -101,8 +132,9 @@ def load_db(db_path):
                .drop_nulls("cat").unique(maintain_order=True))
     cats = sorted(set(nb["cat"].drop_nulls().unique()) | set(targets["cat"].unique()))
     nb = (nb.drop_nulls("cat")  # (ord counts the genes without category too)
-          .select("smorf", "occ", "ent", "ncat", "ord", rank=pl.col("rank").cast(pl.Int32),
-                  code=pl.col("cat").cast(pl.Enum(cats)).to_physical().cast(pl.Int32)))
+          .select("smorf", "occ", "ent", "ncat", "ord", rank=pl.col("rank").cast(pl.UInt8),
+                  code=pl.col("cat").cast(pl.Enum(cats)).to_physical().cast(pl.UInt8))
+          .with_columns(key=pl.col("smorf").cast(pl.Int64) * len(cats) + pl.col("code")))
 
     known = targets.group_by("smorf").agg(known_category=pl.col("cat").sort().str.join(","))
     smorfs = (raw.select("smorf", "bin", "smorf_id")
@@ -121,9 +153,9 @@ def run_starts(a):
     return np.flatnonzero(np.r_[True, a[1:] != a[:-1]]) if len(a) else np.zeros(0, dtype=int)
 
 
-def resolve(d, group, code, v, n_groups):
-    """The category with most votes v in each group: (code, pct) per group."""
-    key = group.astype(np.int64) * d.n_cats + code
+def resolve(d, key, v, n_groups):
+    """The category with most votes v in each group: (code, pct) per group.
+    key is group * n_cats + code, for every vote."""
     votes = np.bincount(key, weights=v, minlength=n_groups * d.n_cats)
     present = np.zeros(n_groups * d.n_cats, dtype=bool)
     present[key] = True
@@ -148,25 +180,24 @@ def resolve(d, group, code, v, n_groups):
 def select(arrays, keep, columns):
     if keep.all():
         return {c: arrays[c] for c in columns}
-    return {c: arrays[c][keep] for c in columns}
+    keep = np.flatnonzero(keep)  # (faster than indexing every column with a mask)
+    return {c: arrays[c].take(keep) for c in columns}
 
 
-def tally(d, weights, n, exclude, multi, background):
-    """The neighbour votes: arrays smorf, occ, ent, code, v with one entry per
+def tally(d, weights, n, exclude, multi, background, columns=("key",)):
+    """The neighbour votes: the given columns of nb and v, with one entry per
     (neighbour, category) that votes, in the order they are cast."""
-    nb = d.nb
-    keep = (nb["rank"] <= n) & ~d.excluded(nb["code"], exclude)
-    x = select(nb, keep, ("smorf", "occ", "ent", "rank", "code"))
-    k = np.bincount(x["ent"])[x["ent"]]  # categories left for this neighbour
-    if multi == "ignore":
-        x, k = select(x, k == 1, x.keys()), 1
-    w = np.array([np.nan] + [weights[r] for r in range(1, MAX_RANK + 1)])
-    v = w[x["rank"]]
-    if multi != "full":
-        v = v / k
+    # the vote of a neighbour category, by (rank, k, code); k: categories left
+    # for this neighbour (see Data.left)
+    v = np.array([np.nan] + [weights[r] for r in range(1, MAX_RANK + 1)])[:, None, None]
+    ks = d.nb["ncat"].max() + 1
+    if multi == "split":  # (with "ignore", k is 1)
+        v = v / np.maximum(np.arange(ks), 1)[None, :, None]  # (k is never 0)
     if background is not None:
-        v = v / background[x["code"]]
-    x["v"] = v
+        v = v / background[None, None, :]
+    v = np.broadcast_to(v, (MAX_RANK + 1, ks, d.n_cats)).ravel()
+    x = d.voters(n, tuple(exclude), multi, columns)
+    x["v"] = v.take(x.pop("vote"))
     return x
 
 
@@ -180,9 +211,10 @@ def weighted_vote(d, curve="linear", n=5, exclude=(), multi="split",
     Options: drop categories, handle multi-letter categories, down-weight
     common categories, require a minimum winning share, or require a
     minimum number of occurrences that contribute votes."""
-    x = tally(d, WEIGHTS[curve], n, exclude, multi, background)
+    x = tally(d, WEIGHTS[curve], n, exclude, multi, background,
+              ("key", "smorf", "occ") if min_occ else ("key",))
     n_smorfs = d.smorfs.height
-    pred, pct = resolve(d, x["smorf"], x["code"], x["v"], n_smorfs)
+    pred, pct = resolve(d, x["key"], x["v"], n_smorfs)
     if cutoff:
         # predict only if pct >= cutoff; the tolerance makes a winner with exactly
         # the cutoff share pass however rounding errors in the sums fall
@@ -200,10 +232,9 @@ def majority(d, n=5, k=4, exclude=()):
     at least k out of n of them agree on one category."""
     nb = d.nb_by_rank
     keep = (nb["ord"] < n) & ~d.excluded(nb["code"], exclude)
-    smorf, ent, code = select(nb, keep, ("smorf", "ent", "code")).values()
+    key, ent = select(nb, keep, ("key", "ent")).values()
     n_smorfs = d.smorfs.height
-    total = np.bincount(smorf[run_starts(ent)], minlength=n_smorfs)
-    key = smorf.astype(np.int64) * d.n_cats + code
+    total = np.bincount(key[run_starts(ent)] // d.n_cats, minlength=n_smorfs)
     counts = np.bincount(key, minlength=n_smorfs * d.n_cats).reshape(n_smorfs, d.n_cats)
     first = np.full(n_smorfs * d.n_cats, len(key))
     np.minimum.at(first, key, np.arange(len(key)))
@@ -219,10 +250,13 @@ def majority(d, n=5, k=4, exclude=()):
 def consensus(d, curve="linear", n=5, exclude=()):
     """Each occurrence (genome) makes its own prediction; then the
     occurrences vote, one vote each."""
-    x = tally(d, WEIGHTS[curve], n, exclude, "split", None)
-    occ_pred, _ = resolve(d, x["occ"], x["code"], x["v"], len(d.occ_smorf))
-    occs = np.flatnonzero(occ_pred < d.n_cats)
-    return resolve(d, d.occ_smorf[occs], occ_pred[occs], np.ones(len(occs)), d.smorfs.height)
+    x = tally(d, WEIGHTS[curve], n, exclude, "split", None, ("occ", "code"))
+    new = np.r_[True, x["occ"][1:] != x["occ"][:-1]][:len(x["occ"])]  # number the occurrences that vote 0, 1, ...
+    occ_pred, _ = resolve(d, (np.cumsum(new) - 1) * d.n_cats + x["code"], x["v"], new.sum())
+    made = occ_pred < d.n_cats
+    smorf = d.occ_smorf[x["occ"][new][made]]
+    return resolve(d, smorf.astype(np.int64) * d.n_cats + occ_pred[made], np.ones(made.sum()),
+                   d.smorfs.height)
 
 
 def control_always(d, category, exclude=()):
@@ -351,16 +385,16 @@ def predict(d, combos):
     preds, pcts = {}, {}
     for c in combos:
         t = time.time()
-        p, s = c["fn"](d, **c["settings"])
-        preds[c["id"]], pcts[c["id"]] = pl.Series(d.labels).gather(p), pl.Series(s)
+        preds[c["id"]], pcts[c["id"]] = p, s = c["fn"](d, **c["settings"])
         made = (p < d.n_cats).sum()
         print(f"  {c['id']}  predicted {made / d.smorfs.height * 100:5.1f}% of smORFs  "
               f"({time.time() - t:.1f}s)  {c['rule']}", flush=True)
 
+    labels = pl.Series(d.labels)
     (d.smorfs.select("bin", "smorf_id",
                      annotated=pl.when("annotated").then(pl.lit("yes")).otherwise(pl.lit("no")),
                      known_category="known_category")
-     .with_columns(preds[c["id"]].alias(c["id"]) for c in combos)
+     .with_columns(labels.gather(preds[c["id"]]).alias(c["id"]) for c in combos)
      .write_csv("predictions_all_smorfs.tsv", separator="\t", line_terminator="\r\n",
                 quote_style="never"))
     return preds, pcts
@@ -375,33 +409,34 @@ def pct(a, b):
 def evaluate(d, combos, preds, pcts):
     """Score each combination ONLY on smORFs with a known COG category."""
     bins = sorted(set(d.smorfs["bin"].to_list()))
+    bin_of = d.smorfs["bin"].cast(pl.Enum(bins)).to_physical().to_numpy()
+    annotated = d.smorfs["annotated"].to_numpy()
+    annot_by_bin = np.bincount(bin_of[annotated], minlength=len(bins))
+    smorf = d.targets["smorf"].to_numpy()
+    cat = d.targets["cat"].cast(pl.Enum(d.labels[:d.n_cats])).to_physical().to_numpy()
     rows, by_bin = [], []
-    known = {}  # exclude -> (smorf, known category) pairs
-
-    tier = pl.lit(None, dtype=pl.String)
-    for t, low in reversed(TIERS):
-        tier = pl.when(pl.col("pct") >= low - PCT_TOLERANCE).then(pl.lit(t)).otherwise(tier)
-    made = ~pl.col("pred").is_in(NO_CALL)
-    ev = made & pl.col("has_known")
-    ok = ev & pl.col("ok")
-    counts = [pl.len().alias("n"), made.sum().alias("pred"), pl.col("annotated").sum().alias("annot"),
-              ev.sum().alias("eval"), ok.sum().alias("correct")]
-    for t, _ in TIERS:
-        counts += [(ev & (tier == t)).sum().alias(f"{t} n"), (ok & (tier == t)).sum().alias(f"{t} ok")]
+    known = {}  # exclude -> (smorf x category: is it a known category, smorf: has one)
 
     for c in combos:
         ex = tuple(c["exclude"])
         if ex not in known:
-            known[ex] = d.targets.filter(~pl.col("cat").is_in(list(ex)))
-        k = known[ex]
-        df = (d.smorfs.select("smorf", "bin", "annotated").with_columns(pred=preds[c["id"]], pct=pcts[c["id"]])
-              .join(k.select("smorf", pred="cat", ok=pl.lit(True)), on=["smorf", "pred"], how="left",
-                    maintain_order="left")
-              .join(k.select("smorf").unique().with_columns(has_known=pl.lit(True)), on="smorf", how="left",
-                    maintain_order="left")
-              .with_columns(pl.col("ok", "has_known").fill_null(False)))
-        st = {r["bin"]: r for r in df.group_by("bin").agg(counts).iter_rows(named=True)}
-        a = df.select(counts).row(0, named=True)
+            k = np.zeros((d.smorfs.height, d.n_cats), dtype=bool)
+            keep = ~d.excluded(cat, ex)
+            k[smorf[keep], cat[keep]] = True
+            known[ex] = k, k.any(axis=1)
+        k, has_known = known[ex]
+        p, s = preds[c["id"]], pcts[c["id"]]
+        made = p < d.n_cats
+        ev = made & has_known
+        ok = ev & k[np.arange(len(p)), np.minimum(p, d.n_cats - 1)]
+        tier = np.full(len(p), -1)
+        for i, (t, low) in reversed(list(enumerate(TIERS))):
+            tier = np.where(~(s < low - PCT_TOLERANCE), i, tier)  # (NaN would count as >=, as in polars)
+
+        a = {"n": len(p), "pred": made.sum(), "annot": annotated.sum(), "eval": ev.sum(), "correct": ok.sum()}
+        for i, (t, _) in enumerate(TIERS):
+            a[f"{t} n"], a[f"{t} ok"] = (ev & (tier == i)).sum(), (ok & (tier == i)).sum()
+        a = {x: int(y) for x, y in a.items()}
         row = {"ID": c["id"], "Group": c["group"], "Rule": c["rule"],
                "smORFs predicted (% of all)": pct(a["pred"], a["n"]),
                "Coverage (% of annotated smORFs evaluated)": pct(a["eval"], a["annot"]),
@@ -411,11 +446,13 @@ def evaluate(d, combos, preds, pcts):
             row[f"{t} n"] = a[f"{t} n"]
             row[f"{t} accuracy (%)"] = pct(a[f"{t} ok"], a[f"{t} n"])
         rows.append(row)
-        for b in bins:
-            x = st[b]
+        ev_by_bin = np.bincount(bin_of[ev], minlength=len(bins))
+        ok_by_bin = np.bincount(bin_of[ok], minlength=len(bins))
+        for i, b in enumerate(bins):
+            n_ev, n_ok, n_annot = int(ev_by_bin[i]), int(ok_by_bin[i]), int(annot_by_bin[i])
             by_bin.append({"ID": c["id"], "Rule": c["rule"], "Bin": b,
-                           "Coverage (%)": pct(x["eval"], x["annot"]), "Evaluated (n)": x["eval"],
-                           "Correct (n)": x["correct"], "Accuracy (%)": pct(x["correct"], x["eval"])})
+                           "Coverage (%)": pct(n_ev, n_annot), "Evaluated (n)": n_ev,
+                           "Correct (n)": n_ok, "Accuracy (%)": pct(n_ok, n_ev)})
 
     ranked = sorted(rows, key=lambda r: float(r["Accuracy (%)"] or 0), reverse=True)
     for rank, r in enumerate(ranked, 1):
