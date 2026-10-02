@@ -71,6 +71,7 @@ class Data:
     nb_by_rank: dict      # nb, with the genes of each occurrence sorted by rank
     _left: dict = field(default_factory=dict)    # cache for left()
     _voters: dict = field(default_factory=dict)  # cache for voters()
+    _counts: dict = field(default_factory=dict)  # cache for counts()
 
     def code(self, label):
         return self.labels.index(label)
@@ -103,6 +104,20 @@ class Data:
                 del self._voters[next(iter(self._voters))]
             self._voters[sel] = select({**self.nb, "vote": vote}, keep, columns + ("vote",))
         return dict(self._voters[sel])
+
+    def counts(self, exclude):
+        """The entries of nb kept by left(exclude), counted by (key, rank, k):
+        arrays key (sorted), rank, k, vote (as in left) and n (the count)"""
+        if exclude not in self._counts:
+            keep, _, vote = self.left(exclude)
+            ks = self.nb["ncat"].max() + 1
+            rk = vote[keep] // self.n_cats  # rank * ks + k
+            both, n = np.unique(self.nb["key"][keep] * ((MAX_RANK + 1) * ks) + rk, return_counts=True)
+            key, rk = np.divmod(both, (MAX_RANK + 1) * ks)
+            rank, k = np.divmod(rk, ks)
+            self._counts[exclude] = {"key": key, "rank": rank, "k": k,
+                                     "vote": rk * self.n_cats + key % self.n_cats, "n": n}
+        return self._counts[exclude]
 
 
 def load_db(db_path):
@@ -160,7 +175,12 @@ def resolve(d, key, v, n_groups):
     present = np.zeros(n_groups * d.n_cats, dtype=bool)
     present[key] = True
     keys = np.flatnonzero(present)  # by group, then category
-    g, x = keys // d.n_cats, votes[keys]
+    return pick(d, keys, votes[keys], n_groups)
+
+
+def pick(d, keys, x, n_groups):
+    """As resolve, from the total votes x of every key (sorted, without duplicates)"""
+    g = keys // d.n_cats
     starts = run_starts(g)
     if not len(g):
         return np.full(n_groups, d.code("NO_EVIDENCE")), np.zeros(n_groups)
@@ -184,20 +204,23 @@ def select(arrays, keep, columns):
     return {c: arrays[c].take(keep) for c in columns}
 
 
-def tally(d, weights, n, exclude, multi, background, columns=("key",)):
-    """The neighbour votes: the given columns of nb and v, with one entry per
-    (neighbour, category) that votes, in the order they are cast."""
-    # the vote of a neighbour category, by (rank, k, code); k: categories left
-    # for this neighbour (see Data.left)
+def vote_table(d, weights, multi, background):
+    """The vote of a neighbour category, by (rank, k, code), flattened; k:
+    categories left for this neighbour (see Data.left)"""
     v = np.array([np.nan] + [weights[r] for r in range(1, MAX_RANK + 1)])[:, None, None]
     ks = d.nb["ncat"].max() + 1
     if multi == "split":  # (with "ignore", k is 1)
         v = v / np.maximum(np.arange(ks), 1)[None, :, None]  # (k is never 0)
     if background is not None:
         v = v / background[None, None, :]
-    v = np.broadcast_to(v, (MAX_RANK + 1, ks, d.n_cats)).ravel()
+    return np.broadcast_to(v, (MAX_RANK + 1, ks, d.n_cats)).ravel()
+
+
+def tally(d, weights, n, exclude, multi, background, columns=("key",)):
+    """The neighbour votes: the given columns of nb and v, with one entry per
+    (neighbour, category) that votes, in the order they are cast."""
     x = d.voters(n, tuple(exclude), multi, columns)
-    x["v"] = v.take(x.pop("vote"))
+    x["v"] = vote_table(d, weights, multi, background).take(x.pop("vote"))
     return x
 
 
@@ -211,16 +234,23 @@ def weighted_vote(d, curve="linear", n=5, exclude=(), multi="split",
     Options: drop categories, handle multi-letter categories, down-weight
     common categories, require a minimum winning share, or require a
     minimum number of occurrences that contribute votes."""
-    x = tally(d, WEIGHTS[curve], n, exclude, multi, background,
-              ("key", "smorf", "occ") if min_occ else ("key",))
+    # the votes are added up from the counts of identical votes (see Data.counts)
+    c = d.counts(tuple(exclude))
+    use = c["rank"] <= n
+    if multi == "ignore":
+        use &= c["k"] == 1
+    c = select(c, use, ("key", "vote", "n"))
+    v = vote_table(d, WEIGHTS[curve], multi, background).take(c["vote"]) * c["n"]
+    starts = run_starts(c["key"])
     n_smorfs = d.smorfs.height
-    pred, pct = resolve(d, x["key"], x["v"], n_smorfs)
+    pred, pct = pick(d, c["key"][starts], np.add.reduceat(v, starts) if len(v) else v, n_smorfs)
     if cutoff:
         # predict only if pct >= cutoff; the tolerance makes a winner with exactly
         # the cutoff share pass however rounding errors in the sums fall
         low = pct < cutoff - PCT_TOLERANCE
         pred = np.where((pred < d.n_cats) & low, d.code("LOW_CONFIDENCE"), pred)
     if min_occ:
+        x = d.voters(n, tuple(exclude), multi, ("smorf", "occ"))
         few = np.bincount(x["smorf"][run_starts(x["occ"])], minlength=n_smorfs) < min_occ
         pred = np.where(few, d.code("TOO_FEW_OCCURRENCES"), pred)
         pct = np.where(few, 0.0, pct)
