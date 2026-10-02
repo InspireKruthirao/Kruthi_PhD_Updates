@@ -10,5 +10,3 @@ python = ">=3.9"
 
 [tasks]
 sweep = "python sweep_db.py"
-predict = "python cog_neighbourhood_vote.py"
-cog-vote = "python Functional_Framework_Analysis.py"
