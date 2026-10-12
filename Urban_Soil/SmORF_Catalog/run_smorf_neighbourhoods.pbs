@@ -1,0 +1,50 @@
+#!/bin/bash
+#PBS -N smorf_nb
+#PBS -l select=1:ncpus=16:mem=64gb
+#PBS -l walltime=24:00:00
+#PBS -q cpu_batch_exec
+#PBS -j oe
+#
+# One job for everything: build (or reuse) urban_soil.db, run every bin of
+# build_smorf_neighbourhoods.py in parallel (one CPU per bin), then merge
+# into smorf_neighbourhoods.sqlite. Submit from this folder:
+#     qsub run_smorf_neighbourhoods.pbs
+# Safe to resubmit: finished bins are skipped.
+
+set -eo pipefail
+export PYTHONNOUSERSITE=1
+
+PY=/home/n12228516/.conda/envs/kruthi/bin/python3
+CODE=/work/microbiome/users/kruthi/intermediate_results/Kruthi_PhD_Updates/Urban_Soil/SmORF_Catalog
+OUT=/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL
+SCRIPT=build_smorf_neighbourhoods.py
+CPUS=${NCPUS:-16}
+
+cd "$CODE"
+mkdir -p "$OUT/logs"
+
+echo "== build $(date)"
+$PY -s -u $SCRIPT build
+
+BINS=$($PY -s -c "import build_smorf_neighbourhoods as b; print(' '.join(f'{l}_{h}' for l, h, n in b.bins(b.connect(True))))")
+echo "== bins: $BINS ($CPUS at a time) $(date)"
+
+for bin in $BINS; do
+    if [ -e "$OUT/parts/bin_$bin.sqlite" ]; then
+        echo "  bin $bin: already done, skipped"
+        continue
+    fi
+    while [ "$(jobs -rp | wc -l)" -ge "$CPUS" ]; do
+        wait -n || true
+    done
+    echo "  bin $bin: started $(date +%T)"
+    $PY -s -u $SCRIPT bin ${bin%_*} ${bin#*_} > "$OUT/logs/bin_$bin.log" 2>&1 &
+done
+wait || true
+
+echo "== results per bin $(date)"
+grep -h "DONE" "$OUT"/logs/bin_*.log || true
+
+echo "== merge $(date)"
+$PY -s -u $SCRIPT merge
+echo "== finished $(date)"
