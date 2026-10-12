@@ -375,6 +375,108 @@ def control_shuffled(d, rng, exclude=()):
     return pred[other], pct[other]
 
 
+# =========================================== methods added for C101-C150 ==
+
+def presence(d, n, exclude):
+    """For each smORF and category: in how many of the smORF's occurrences
+    (genomes) the category is found among the neighbours with rank <= n,
+    ignoring the categories in exclude. Returns (count, n_occ): count is a
+    smORF x category array, n_occ the number of occurrences of each smORF."""
+    nb = d.nb
+    keep = (nb["rank"] <= n) & ~d.excluded(nb["code"], exclude)
+    pair = np.unique(nb["occ"][keep].astype(np.int64) * d.n_cats + nb["code"][keep])
+    key = d.occ_smorf[pair // d.n_cats].astype(np.int64) * d.n_cats + pair % d.n_cats
+    n_smorfs = d.smorfs.height
+    count = np.bincount(key, minlength=n_smorfs * d.n_cats).reshape(n_smorfs, d.n_cats)
+    return count, np.bincount(d.occ_smorf, minlength=n_smorfs)
+
+
+def top_of(d, score, eligible):
+    """The category with the highest score in each row of score (a smORF x
+    category array), among the eligible entries: UNRESOLVED on a tie,
+    NO_EVIDENCE if no entry is eligible. Returns the codes and the row
+    index of the winner (for looking up other values)."""
+    s = np.where(eligible, score, -np.inf)
+    top = np.where(eligible.any(axis=1), s.max(axis=1), 0.0)
+    win = eligible & (np.abs(s - top[:, None]) < TIE_TOLERANCE)
+    pred = np.where(win.sum(axis=1) == 1, s.argmax(axis=1), d.code("UNRESOLVED"))
+    return np.where(eligible.any(axis=1), pred, d.code("NO_EVIDENCE")), s.argmax(axis=1)
+
+
+def conserved(d, n=3, exclude=(), min_frac=None):
+    """Conserved neighbourhood: predict the category found near the smORF
+    (rank <= n) in the most genomes. pct is the share of the smORF's
+    genomes that have it. With min_frac, predict LOW_CONFIDENCE if fewer
+    than that share of genomes have the winner."""
+    count, n_occ = presence(d, n, exclude)
+    pred, col = top_of(d, count, count > 0)
+    frac = count[np.arange(len(pred)), col] / np.maximum(n_occ, 1)
+    pct = np.where(pred < d.n_cats, frac * 100, 0.0)
+    if min_frac:
+        pred = np.where((pred < d.n_cats) & (frac < min_frac - PCT_TOLERANCE), d.code("LOW_CONFIDENCE"), pred)
+    return pred, pct
+
+
+def sandwiched(d, exclude=(), min_genomes=1, min_frac=None):
+    """The smORF sits between two genes of the same category: in a genome,
+    the closest gene on each side (both rank 1) share a category. Predict
+    the category sandwiching the smORF in the most genomes, if in at least
+    min_genomes genomes (and, with min_frac, that share of its genomes).
+    pct is the share of the smORF's genomes where it is sandwiched."""
+    nb = d.nb
+    keep = (nb["rank"] == 1) & ~d.excluded(nb["code"], exclude)
+    pair, k = np.unique(nb["occ"][keep].astype(np.int64) * d.n_cats + nb["code"][keep],
+                        return_counts=True)
+    both = pair[k >= 2]  # the category is on both rank-1 genes of this occurrence
+    key = d.occ_smorf[both // d.n_cats].astype(np.int64) * d.n_cats + both % d.n_cats
+    n_smorfs = d.smorfs.height
+    count = np.bincount(key, minlength=n_smorfs * d.n_cats).reshape(n_smorfs, d.n_cats)
+    n_occ = np.bincount(d.occ_smorf, minlength=n_smorfs)
+    pred, col = top_of(d, count, count >= max(min_genomes, 1))
+    frac = count[np.arange(n_smorfs), col] / np.maximum(n_occ, 1)
+    if min_frac:
+        pred = np.where((pred < d.n_cats) & (frac < min_frac - PCT_TOLERANCE), d.code("NO_EVIDENCE"), pred)
+    return pred, np.where(pred < d.n_cats, frac * 100, 0.0)
+
+
+def enriched(d, n=3, exclude=(), min_genomes=2):
+    """Enrichment over background: a category's share of the smORF's
+    genomes that have it near the smORF (rank <= n), divided by its share
+    over all occurrences in the data. Predict the most enriched category
+    among those found in at least min_genomes genomes. pct is the share of
+    the smORF's genomes that have the winner."""
+    count, n_occ = presence(d, n, exclude)
+    frac = count / np.maximum(n_occ, 1)[:, None]
+    background = count.sum(axis=0) / max(n_occ.sum(), 1)
+    enrichment = np.divide(frac, background, out=np.zeros_like(frac), where=background > 0)
+    pred, col = top_of(d, enrichment, count >= min_genomes)
+    return pred, np.where(pred < d.n_cats, frac[np.arange(len(pred)), col] * 100, 0.0)
+
+
+def conserved_vote(d, curve="very_steep", n=3, exclude=()):
+    """Weighted vote (as weighted_vote) where each category's total vote
+    is multiplied by the share of the smORF's genomes that have it near
+    the smORF (as conserved): categories seen in only a few genomes count
+    less. pct is the winner's share of these votes."""
+    x = tally(d, WEIGHTS[curve], n, exclude, "split", None)
+    n_smorfs = d.smorfs.height
+    votes = np.bincount(x["key"], weights=x["v"], minlength=n_smorfs * d.n_cats)
+    count, n_occ = presence(d, n, exclude)
+    scaled = votes * (count / np.maximum(n_occ, 1)[:, None]).ravel()
+    keys = np.flatnonzero(count.ravel() > 0)
+    return pick(d, keys, scaled[keys], n_smorfs)
+
+
+def agree(d, first, second, exclude=()):
+    """Two methods must agree: predict the category of first only where
+    second predicts the same one, else NO_EVIDENCE. first and second are
+    (method, settings) pairs. pct is that of first."""
+    p1, s1 = first[0](d, **first[1])
+    p2, _ = second[0](d, **second[1])
+    ok = (p1 < d.n_cats) & (p1 == p2)
+    return np.where(ok, p1, d.code("NO_EVIDENCE")), np.where(ok, s1, 0.0)
+
+
 # ================================================= the 100 combinations ==
 
 def build_combinations(d):
@@ -475,6 +577,55 @@ def build_combinations(d):
             control_random, categories=cats, freqs=counts, rng=random.Random(0))
     add("J. Control", "original method run on the neighbours of a different random smORF",
         control_shuffled, rng=random.Random(1))
+
+    # ---- added rules C101-C150 (the rules above keep their IDs) ----
+
+    # K. conserved neighbourhood (24)
+    for n in (1, 2, 3, 5):
+        for frac in (None, 0.5, 0.7):
+            for cname, ex in cats_opts:
+                need = f", only if in >= {frac:.0%} of its genomes" if frac else ""
+                add("K. Conserved neighbourhood", f"category found within {n} neighbour(s) in the most "
+                    f"genomes{need}, {cname}", conserved, n=n, exclude=ex, min_frac=frac)
+
+    # L. sandwiched between genes of the same category (6)
+    for genomes, frac, text in ((1, None, "in at least 1 genome"), (2, None, "in at least 2 genomes"),
+                                (1, 0.5, "in at least 50% of its genomes")):
+        for cname, ex in cats_opts:
+            add("L. Sandwiched", f"closest gene on both sides has the same category, {text}, {cname}",
+                sandwiched, exclude=ex, min_genomes=genomes, min_frac=frac)
+
+    # M. two methods must agree (4)
+    for cname, ex in cats_opts:
+        add("M. Two methods agree", f"very steep weights, 3 neighbours, and conserved neighbourhood "
+            f"(3 neighbours) predict the same category, {cname}", agree, exclude=ex,
+            first=(weighted_vote, dict(curve="very_steep", n=3, exclude=ex)),
+            second=(conserved, dict(n=3, exclude=ex)))
+    for cname, ex in cats_opts:
+        add("M. Two methods agree", f"original method and 'at least 3 of the 5 nearest agree' predict "
+            f"the same category, {cname}", agree, exclude=ex,
+            first=(weighted_vote, dict(curve="linear", n=5, exclude=ex)),
+            second=(majority, dict(n=5, k=3, exclude=ex)))
+
+    # N. enrichment over background (4)
+    for n in (3, 5):
+        for cname, ex in cats_opts:
+            add("N. Enrichment over background", f"category most enriched within {n} neighbours compared "
+                f"with the whole data, found in >= 2 genomes, {cname}", enriched, n=n, exclude=ex)
+
+    # O. weighted vote scaled by conservation (4)
+    for curve, n in (("very_steep", 3), ("linear", 5)):
+        for cname, ex in cats_opts:
+            add("O. Conservation-weighted vote", f"{curve_name[curve]} weights, {n} neighbours, each "
+                f"category's vote times the share of genomes that have it, {cname}",
+                conserved_vote, curve=curve, n=n, exclude=ex)
+
+    # P. confidence cutoffs on very steep weights, 3 neighbours (8)
+    for cut in (50, 60, 70, 80):
+        for cname, ex in cats_opts:
+            add("P. Confidence cutoff (very steep)", f"very steep weights, 3 neighbours, predict only if "
+                f"winner has >= {cut}% of the vote, {cname}", weighted_vote,
+                curve="very_steep", n=3, exclude=ex, cutoff=cut)
     return combos
 
 

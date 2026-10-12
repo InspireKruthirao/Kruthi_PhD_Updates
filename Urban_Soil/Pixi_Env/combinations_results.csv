@@ -1,101 +1,151 @@
 ID,Accuracy rank,Group,Rule,Accuracy (%),Coverage (% of annotated smORFs evaluated),smORFs predicted (% of all),Evaluated (n),Correct (n),VERY_HIGH n,VERY_HIGH accuracy (%),HIGH n,HIGH accuracy (%),MEDIUM n,MEDIUM accuracy (%),LOW n,LOW accuracy (%)
-C001,49,A. Weighted vote,"linear weights, 1 neighbour(s), all categories",44.2,77.2,74.9,58789,25983,53704,44.6,3841,37.4,1071,46.9,173,41.6
-C002,26,A. Weighted vote,"linear weights, 1 neighbour(s), excluding S and R",50.0,60.3,72.4,45904,22960,43099,50.6,2123,40.5,579,45.9,103,31.1
-C003,79,A. Weighted vote,"linear weights, 2 neighbour(s), all categories",40.1,93.8,92.9,71397,28613,38925,50.2,13951,31.7,14403,25.3,4118,24.3
-C004,48,A. Weighted vote,"linear weights, 2 neighbour(s), excluding S and R",44.9,71.8,91.1,54667,24567,35761,52.5,9276,33.1,8078,28.6,1552,26.7
-C005,65,A. Weighted vote,"steeper weights, 2 neighbour(s), all categories",41.1,91.8,90.8,69905,28742,43473,48.4,14431,31.6,10951,25.6,1050,32.1
-C006,30,A. Weighted vote,"steeper weights, 2 neighbour(s), excluding S and R",46.3,70.6,89.2,53734,24890,39543,51.1,8818,34.8,4802,29.5,571,31.5
-C007,69,A. Weighted vote,"flat weights, 2 neighbour(s), all categories",40.8,85.6,83.5,65124,26569,38114,50.1,11635,32.5,11458,24.8,3917,21.7
-C008,40,A. Weighted vote,"flat weights, 2 neighbour(s), excluding S and R",45.3,66.0,82.5,50267,22784,34713,52.4,7320,33.2,6807,27.0,1427,23.3
-C009,60,A. Weighted vote,"very steep weights, 2 neighbour(s), all categories",41.5,92.7,91.6,70564,29261,46716,47.6,19653,28.2,3552,36.0,643,35.5
-C010,28,A. Weighted vote,"very steep weights, 2 neighbour(s), excluding S and R",46.8,71.0,89.6,54065,25284,41847,50.7,9786,33.1,2056,36.1,376,28.2
-C011,83,A. Weighted vote,"linear weights, 3 neighbour(s), all categories",39.4,96.8,96.4,73652,29035,28006,56.8,16086,33.4,19096,28.5,10464,22.1
-C012,53,A. Weighted vote,"linear weights, 3 neighbour(s), excluding S and R",43.5,73.9,95.3,56250,24480,27777,57.4,11457,33.0,12313,29.3,4703,24.3
-C013,67,A. Weighted vote,"steeper weights, 3 neighbour(s), all categories",41.0,95.3,94.7,72533,29718,34342,53.2,18690,32.8,16094,27.2,3407,27.4
-C014,38,A. Weighted vote,"steeper weights, 3 neighbour(s), excluding S and R",45.7,73.2,93.8,55712,25450,33555,54.2,12218,35.5,8424,29.5,1515,28.7
-C015,89,A. Weighted vote,"flat weights, 3 neighbour(s), all categories",38.7,91.4,89.8,69557,26940,26482,56.9,14482,32.6,19065,27.5,9528,20.2
-C016,56,A. Weighted vote,"flat weights, 3 neighbour(s), excluding S and R",42.5,69.1,87.1,52581,22364,26345,57.0,10118,32.3,11376,27.3,4742,20.5
-C017,62,A. Weighted vote,"very steep weights, 3 neighbour(s), all categories",41.3,95.8,95.1,72942,30120,42445,49.3,22445,30.3,7069,29.5,983,33.6
-C018,29,A. Weighted vote,"very steep weights, 3 neighbour(s), excluding S and R",46.4,73.4,93.9,55874,25899,39885,51.4,11971,34.3,3408,33.4,610,28.0
-C019,85,A. Weighted vote,"linear weights, 4 neighbour(s), all categories",39.1,97.5,97.2,74203,29008,23014,60.8,15136,35.4,21411,29.7,14642,22.5
-C020,55,A. Weighted vote,"linear weights, 4 neighbour(s), excluding S and R",42.8,74.5,96.4,56700,24273,23298,61.2,11337,34.3,14437,29.1,7628,25.1
-C021,70,A. Weighted vote,"steeper weights, 4 neighbour(s), all categories",40.8,96.8,96.4,73671,30031,30588,55.7,18885,33.4,18570,28.5,5628,24.8
-C022,39,A. Weighted vote,"steeper weights, 4 neighbour(s), excluding S and R",45.4,74.2,95.7,56479,25641,30365,56.3,13167,35.9,10556,30.3,2391,26.6
-C023,91,A. Weighted vote,"flat weights, 4 neighbour(s), all categories",37.2,93.9,92.9,71489,26625,19895,61.4,13825,35.1,20508,28.0,17261,22.0
-C024,78,A. Weighted vote,"flat weights, 4 neighbour(s), excluding S and R",40.2,71.0,90.1,54008,21707,20487,61.4,10351,33.6,13980,25.9,9190,22.0
-C025,64,A. Weighted vote,"very steep weights, 4 neighbour(s), all categories",41.2,97.1,96.5,73867,30399,41361,49.7,23127,30.7,8287,28.9,1092,32.2
-C026,32,A. Weighted vote,"very steep weights, 4 neighbour(s), excluding S and R",46.2,74.3,95.6,56518,26122,39281,51.6,12608,34.7,3919,32.6,710,28.0
-C027,86,A. Weighted vote,"linear weights, 5 neighbour(s), all categories (ORIGINAL METHOD)",38.9,98.0,97.7,74599,29029,20776,63.2,14727,36.2,21838,30.2,17258,23.0
-C028,57,A. Weighted vote,"linear weights, 5 neighbour(s), excluding S and R (ORIGINAL METHOD)",42.5,74.8,97.0,56969,24193,21182,63.6,11088,35.1,15277,29.5,9422,24.7
-C029,71,A. Weighted vote,"steeper weights, 5 neighbour(s), all categories",40.7,97.7,97.4,74362,30273,28950,57.1,18348,33.5,20067,29.0,6997,25.3
-C030,42,A. Weighted vote,"steeper weights, 5 neighbour(s), excluding S and R",45.2,74.8,96.8,56924,25752,28812,57.7,13353,35.3,11784,30.9,2975,25.5
-C031,92,A. Weighted vote,"flat weights, 5 neighbour(s), all categories",36.2,95.2,94.5,72470,26245,15893,65.6,12624,36.3,21110,28.8,22843,22.6
-C032,90,A. Weighted vote,"flat weights, 5 neighbour(s), excluding S and R",38.4,72.1,92.3,54901,21066,16615,65.5,9494,34.5,14862,26.0,13930,21.9
-C033,66,A. Weighted vote,"very steep weights, 5 neighbour(s), all categories",41.1,97.8,97.3,74441,30572,41108,49.8,23306,30.9,8885,28.7,1142,32.0
-C034,33,A. Weighted vote,"very steep weights, 5 neighbour(s), excluding S and R",46.1,74.7,96.5,56859,26225,39112,51.7,12852,34.7,4142,32.5,753,27.2
-C035,22,B. Majority rule,"at least 2 of the 3 nearest agree, all categories",54.6,36.7,36.8,27926,15236,27926,54.6,0,,0,,0,
-C036,21,B. Majority rule,"at least 2 of the 3 nearest agree, excluding S and R",56.0,36.4,48.1,27699,15505,27699,56.0,0,,0,,0,
-C037,17,B. Majority rule,"at least 3 of the 5 nearest agree, all categories",62.4,27.4,26.2,20886,13038,20886,62.4,0,,0,,0,
-C038,18,B. Majority rule,"at least 3 of the 5 nearest agree, excluding S and R",61.4,29.3,36.6,22285,13693,22285,61.4,0,,0,,0,
-C039,5,B. Majority rule,"at least 4 of the 5 nearest agree, all categories",78.4,11.1,9.9,8469,6637,8469,78.4,0,,0,,0,
-C040,12,B. Majority rule,"at least 4 of the 5 nearest agree, excluding S and R",72.8,14.2,17.5,10782,7845,10782,72.8,0,,0,,0,
-C041,3,B. Majority rule,"at least 5 of the 7 nearest agree, all categories",80.5,10.3,8.5,7842,6309,7842,80.5,0,,0,,0,
-C042,7,B. Majority rule,"at least 5 of the 7 nearest agree, excluding S and R",77.3,12.9,14.2,9842,7608,9842,77.3,0,,0,,0,
-C043,4,B. Majority rule,"at least 6 of the 9 nearest agree, all categories",80.3,9.8,7.8,7448,5981,7448,80.3,0,,0,,0,
-C044,6,B. Majority rule,"at least 6 of the 9 nearest agree, excluding S and R",78.0,12.3,12.6,9357,7303,9357,78.0,0,,0,,0,
-C045,51,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 30% of the vote, all categories",43.7,75.3,75.4,57341,25055,20776,63.2,14727,36.2,21838,30.2,0,
-C046,35,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 30% of the vote, excluding S and R",46.0,62.5,81.3,47547,21868,21182,63.6,11088,35.1,15277,29.5,0,
-C047,24,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 40% of the vote, all categories",52.0,46.6,45.6,35503,18455,20776,63.2,14727,36.2,0,,0,
-C048,23,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 40% of the vote, excluding S and R",53.8,42.4,53.7,32270,17368,21182,63.6,11088,35.1,0,,0,
-C049,16,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 50% of the vote, all categories",63.2,27.3,25.2,20776,13128,20776,63.2,0,,0,,0,
-C050,15,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 50% of the vote, excluding S and R",63.6,27.8,32.8,21182,13474,21182,63.6,0,,0,,0,
-C051,10,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 60% of the vote, all categories",74.5,16.0,13.4,12142,9051,12142,74.5,0,,0,,0,
-C052,11,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 60% of the vote, excluding S and R",74.4,17.6,18.9,13394,9962,13394,74.4,0,,0,,0,
-C053,1,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 70% of the vote, all categories",83.6,9.6,7.3,7319,6117,7319,83.6,0,,0,,0,
-C054,2,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 70% of the vote, excluding S and R",82.3,11.1,10.8,8413,6920,8413,82.3,0,,0,,0,
-C055,59,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 30% of the vote, all categories",42.3,88.5,89.1,67365,28503,28950,57.1,18348,33.5,20067,29.0,0,
-C056,31,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 30% of the vote, excluding S and R",46.3,70.9,92.0,53949,24992,28812,57.7,13353,35.3,11784,30.9,0,
-C057,27,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 40% of the vote, all categories",48.0,62.1,62.8,47298,22684,28950,57.1,18348,33.5,0,,0,
-C058,25,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 40% of the vote, excluding S and R",50.6,55.4,72.4,42165,21348,28812,57.7,13353,35.3,0,,0,
-C059,20,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 50% of the vote, all categories",57.1,38.0,37.2,28950,16535,28950,57.1,0,,0,,0,
-C060,19,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 50% of the vote, excluding S and R",57.7,37.9,48.4,28812,16632,28812,57.7,0,,0,,0,
-C061,14,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 60% of the vote, all categories",66.5,23.8,21.8,18090,12036,18090,66.5,0,,0,,0,
-C062,13,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 60% of the vote, excluding S and R",66.7,24.7,29.7,18783,12519,18783,66.7,0,,0,,0,
-C063,9,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 70% of the vote, all categories",75.3,15.0,12.6,11383,8568,11383,75.3,0,,0,,0,
-C064,8,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 70% of the vote, excluding S and R",76.0,16.3,18.0,12380,9404,12380,76.0,0,,0,,0,
-C065,96,D. Down-weight common categories,"linear weights, 5 neighbours, votes divided by how common the category is overall, all categories",28.1,100.0,99.9,76105,21405,23218,43.6,17016,27.1,22040,21.0,13831,14.8
-C066,93,D. Down-weight common categories,"linear weights, 5 neighbours, votes divided by how common the category is overall, excluding S and R",35.4,76.6,99.8,58338,20679,21702,49.5,13820,33.1,15077,26.2,7739,18.1
-C067,95,D. Down-weight common categories,"steeper weights, 5 neighbours, votes divided by how common the category is overall, all categories",31.4,100.0,99.9,76105,23892,33916,42.4,18192,24.3,17635,21.6,6362,19.8
-C068,87,D. Down-weight common categories,"steeper weights, 5 neighbours, votes divided by how common the category is overall, excluding S and R",38.9,76.6,99.8,58338,22705,30665,48.8,13056,30.8,11245,26.5,3372,22.1
-C069,94,D. Down-weight common categories,"steeper weights, 3 neighbours, votes divided by how common the category is overall, all categories",32.0,100.0,99.7,76088,24339,40701,40.3,17492,23.3,14160,21.8,3735,20.0
-C070,82,D. Down-weight common categories,"steeper weights, 3 neighbours, votes divided by how common the category is overall, excluding S and R",39.5,76.5,99.2,58255,23028,35760,47.0,11814,29.2,8745,26.8,1936,21.3
-C071,81,E. Consensus across genomes,"each genome predicts with linear weights and 3 neighbours, then genomes vote, all categories",39.6,93.8,93.5,71365,28229,70001,39.8,1038,28.4,289,30.8,37,35.1
-C072,50,E. Consensus across genomes,"each genome predicts with linear weights and 3 neighbours, then genomes vote, excluding S and R",43.9,72.0,92.9,54800,24083,53909,44.2,653,29.9,209,30.6,29,31.0
-C073,84,E. Consensus across genomes,"each genome predicts with linear weights and 5 neighbours, then genomes vote, all categories",39.3,95.0,94.7,72309,28418,70761,39.6,1157,25.8,356,31.7,35,31.4
-C074,54,E. Consensus across genomes,"each genome predicts with linear weights and 5 neighbours, then genomes vote, excluding S and R",43.0,72.7,94.0,55307,23806,54166,43.4,844,27.3,257,28.0,40,27.5
-C075,61,E. Consensus across genomes,"each genome predicts with steeper weights and 3 neighbours, then genomes vote, all categories",41.5,92.5,92.1,70401,29248,69694,41.6,534,34.1,153,30.7,20,50.0
-C076,34,E. Consensus across genomes,"each genome predicts with steeper weights and 3 neighbours, then genomes vote, excluding S and R",46.1,71.6,92.0,54469,25101,53926,46.2,397,30.5,123,28.5,23,47.8
-C077,63,E. Consensus across genomes,"each genome predicts with steeper weights and 5 neighbours, then genomes vote, all categories",41.3,95.0,94.7,72286,29857,71364,41.4,679,34.3,218,33.0,25,20.0
-C078,37,E. Consensus across genomes,"each genome predicts with steeper weights and 5 neighbours, then genomes vote, excluding S and R",45.8,72.9,94.4,55490,25429,54743,46.0,535,30.5,183,26.8,29,27.6
-C079,72,F. Minimum evidence,"steeper weights, 5 neighbours, predict only if >= 2 genomes contribute votes, all categories",40.7,97.7,97.4,74359,30272,28947,57.1,18348,33.5,20067,29.0,6997,25.3
-C080,43,F. Minimum evidence,"steeper weights, 5 neighbours, predict only if >= 2 genomes contribute votes, excluding S and R",45.2,74.8,96.7,56915,25748,28803,57.7,13353,35.3,11784,30.9,2975,25.5
-C081,73,F. Minimum evidence,"steeper weights, 5 neighbours, predict only if >= 3 genomes contribute votes, all categories",40.7,97.7,97.3,74356,30272,28944,57.1,18348,33.5,20067,29.0,6997,25.3
-C082,44,F. Minimum evidence,"steeper weights, 5 neighbours, predict only if >= 3 genomes contribute votes, excluding S and R",45.2,74.8,96.6,56906,25747,28794,57.7,13353,35.3,11784,30.9,2975,25.5
-C083,74,F. Minimum evidence,"steeper weights, 5 neighbours, predict only if >= 5 genomes contribute votes, all categories",40.7,97.2,96.7,73958,30125,28781,57.2,18238,33.5,19970,29.0,6969,25.3
-C084,41,F. Minimum evidence,"steeper weights, 5 neighbours, predict only if >= 5 genomes contribute votes, excluding S and R",45.3,74.3,95.8,56557,25609,28615,57.8,13265,35.3,11720,30.9,2957,25.6
-C085,75,G. More neighbours,"steeper weights, 7 neighbours, all categories",40.7,97.7,97.4,74362,30273,28950,57.1,18348,33.5,20067,29.0,6997,25.3
-C086,45,G. More neighbours,"steeper weights, 7 neighbours, excluding S and R",45.2,74.8,96.8,56924,25752,28812,57.7,13353,35.3,11784,30.9,2975,25.5
-C087,76,G. More neighbours,"steeper weights, 10 neighbours, all categories",40.7,97.7,97.4,74362,30273,28950,57.1,18348,33.5,20067,29.0,6997,25.3
-C088,46,G. More neighbours,"steeper weights, 10 neighbours, excluding S and R",45.2,74.8,96.8,56924,25752,28812,57.7,13353,35.3,11784,30.9,2975,25.5
-C089,68,H. Multi-letter categories,"steeper weights, 5 neighbours, count every letter fully, all categories",41.0,96.8,96.2,73663,30188,26935,58.6,17372,35.2,20209,29.5,9147,25.5
-C090,36,H. Multi-letter categories,"steeper weights, 5 neighbours, count every letter fully, excluding S and R",45.9,73.9,95.2,56246,25805,26755,59.1,12906,37.3,12364,32.6,4221,26.9
-C091,80,H. Multi-letter categories,"steeper weights, 5 neighbours, ignore multi-letter genes, all categories",39.8,97.7,97.5,74366,29566,33919,53.0,19464,31.1,17049,26.5,3934,25.7
-C092,52,H. Multi-letter categories,"steeper weights, 5 neighbours, ignore multi-letter genes, excluding S and R",43.7,75.1,97.4,57146,24974,33877,52.9,13054,31.6,8798,28.9,1417,26.3
-C093,58,I. Other exclusions,"linear weights, 5 neighbours, excluding S only",42.5,74.8,97.0,56969,24193,21182,63.6,11088,35.1,15277,29.5,9422,24.7
-C094,88,I. Other exclusions,"linear weights, 5 neighbours, excluding R only",38.9,98.0,97.7,74599,29029,20776,63.2,14727,36.2,21838,30.2,17258,23.0
-C095,47,I. Other exclusions,"steeper weights, 5 neighbours, excluding S only",45.2,74.8,96.8,56924,25752,28812,57.7,13353,35.3,11784,30.9,2975,25.5
-C096,77,I. Other exclusions,"steeper weights, 5 neighbours, excluding R only",40.7,97.7,97.4,74362,30273,28950,57.1,18348,33.5,20067,29.0,6997,25.3
-C097,97,J. Control,"always predict 'S' (most common category), all categories",26.1,100.0,100.0,76111,19889,0,,0,,0,,76111,26.1
-C098,98,J. Control,"always predict 'J' (most common category), excluding S and R",25.6,76.7,100.0,58356,14928,0,,0,,0,,58356,25.6
-C099,99,J. Control,"random category, weighted by how common each is, all categories",13.1,100.0,100.0,76111,9982,0,,0,,0,,76111,13.1
-C100,100,J. Control,original method run on the neighbours of a different random smORF,12.6,97.7,97.7,74389,9354,19298,14.9,15536,13.1,22357,12.0,17198,10.3
+C001,91,A. Weighted vote,"linear weights, 1 neighbour(s), all categories",44.2,77.2,74.9,58789,25983,53704,44.6,3841,37.4,1071,46.9,173,41.6
+C002,52,A. Weighted vote,"linear weights, 1 neighbour(s), excluding S and R",50.0,60.3,72.4,45904,22960,43099,50.6,2123,40.5,579,45.9,103,31.1
+C003,124,A. Weighted vote,"linear weights, 2 neighbour(s), all categories",40.1,93.8,92.9,71397,28613,38925,50.2,13951,31.7,14403,25.3,4118,24.3
+C004,87,A. Weighted vote,"linear weights, 2 neighbour(s), excluding S and R",44.9,71.8,91.1,54667,24567,35761,52.5,9276,33.1,8078,28.6,1552,26.7
+C005,109,A. Weighted vote,"steeper weights, 2 neighbour(s), all categories",41.1,91.8,90.8,69905,28742,43473,48.4,14431,31.6,10951,25.6,1050,32.1
+C006,66,A. Weighted vote,"steeper weights, 2 neighbour(s), excluding S and R",46.3,70.6,89.2,53734,24890,39543,51.1,8818,34.8,4802,29.5,571,31.5
+C007,113,A. Weighted vote,"flat weights, 2 neighbour(s), all categories",40.8,85.6,83.5,65124,26569,38114,50.1,11635,32.5,11458,24.8,3917,21.7
+C008,77,A. Weighted vote,"flat weights, 2 neighbour(s), excluding S and R",45.3,66.0,82.5,50267,22784,34713,52.4,7320,33.2,6807,27.0,1427,23.3
+C009,104,A. Weighted vote,"very steep weights, 2 neighbour(s), all categories",41.5,92.7,91.6,70564,29261,46716,47.6,19653,28.2,3552,36.0,643,35.5
+C010,62,A. Weighted vote,"very steep weights, 2 neighbour(s), excluding S and R",46.8,71.0,89.6,54065,25284,41847,50.7,9786,33.1,2056,36.1,376,28.2
+C011,128,A. Weighted vote,"linear weights, 3 neighbour(s), all categories",39.4,96.8,96.4,73652,29035,28006,56.8,16086,33.4,19096,28.5,10464,22.1
+C012,96,A. Weighted vote,"linear weights, 3 neighbour(s), excluding S and R",43.5,73.9,95.3,56250,24480,27777,57.4,11457,33.0,12313,29.3,4703,24.3
+C013,111,A. Weighted vote,"steeper weights, 3 neighbour(s), all categories",41.0,95.3,94.7,72533,29718,34342,53.2,18690,32.8,16094,27.2,3407,27.4
+C014,75,A. Weighted vote,"steeper weights, 3 neighbour(s), excluding S and R",45.7,73.2,93.8,55712,25450,33555,54.2,12218,35.5,8424,29.5,1515,28.7
+C015,134,A. Weighted vote,"flat weights, 3 neighbour(s), all categories",38.7,91.4,89.8,69557,26940,26482,56.9,14482,32.6,19065,27.5,9528,20.2
+C016,99,A. Weighted vote,"flat weights, 3 neighbour(s), excluding S and R",42.5,69.1,87.1,52581,22364,26345,57.0,10118,32.3,11376,27.3,4742,20.5
+C017,106,A. Weighted vote,"very steep weights, 3 neighbour(s), all categories",41.3,95.8,95.1,72942,30120,42445,49.3,22445,30.3,7069,29.5,983,33.6
+C018,65,A. Weighted vote,"very steep weights, 3 neighbour(s), excluding S and R",46.4,73.4,93.9,55874,25899,39885,51.4,11971,34.3,3408,33.4,610,28.0
+C019,130,A. Weighted vote,"linear weights, 4 neighbour(s), all categories",39.1,97.5,97.2,74203,29008,23014,60.8,15136,35.4,21411,29.7,14642,22.5
+C020,98,A. Weighted vote,"linear weights, 4 neighbour(s), excluding S and R",42.8,74.5,96.4,56700,24273,23298,61.2,11337,34.3,14437,29.1,7628,25.1
+C021,114,A. Weighted vote,"steeper weights, 4 neighbour(s), all categories",40.8,96.8,96.4,73671,30031,30588,55.7,18885,33.4,18570,28.5,5628,24.8
+C022,76,A. Weighted vote,"steeper weights, 4 neighbour(s), excluding S and R",45.4,74.2,95.7,56479,25641,30365,56.3,13167,35.9,10556,30.3,2391,26.6
+C023,137,A. Weighted vote,"flat weights, 4 neighbour(s), all categories",37.2,93.9,92.9,71489,26625,19895,61.4,13825,35.1,20508,28.0,17261,22.0
+C024,123,A. Weighted vote,"flat weights, 4 neighbour(s), excluding S and R",40.2,71.0,90.1,54008,21707,20487,61.4,10351,33.6,13980,25.9,9190,22.0
+C025,108,A. Weighted vote,"very steep weights, 4 neighbour(s), all categories",41.2,97.1,96.5,73867,30399,41361,49.7,23127,30.7,8287,28.9,1092,32.2
+C026,68,A. Weighted vote,"very steep weights, 4 neighbour(s), excluding S and R",46.2,74.3,95.6,56518,26122,39281,51.6,12608,34.7,3919,32.6,710,28.0
+C027,131,A. Weighted vote,"linear weights, 5 neighbour(s), all categories (ORIGINAL METHOD)",38.9,98.0,97.7,74599,29029,20776,63.2,14727,36.2,21838,30.2,17258,23.0
+C028,100,A. Weighted vote,"linear weights, 5 neighbour(s), excluding S and R (ORIGINAL METHOD)",42.5,74.8,97.0,56969,24193,21182,63.6,11088,35.1,15277,29.5,9422,24.7
+C029,116,A. Weighted vote,"steeper weights, 5 neighbour(s), all categories",40.7,97.7,97.4,74362,30273,28950,57.1,18348,33.5,20067,29.0,6997,25.3
+C030,79,A. Weighted vote,"steeper weights, 5 neighbour(s), excluding S and R",45.2,74.8,96.8,56924,25752,28812,57.7,13353,35.3,11784,30.9,2975,25.5
+C031,138,A. Weighted vote,"flat weights, 5 neighbour(s), all categories",36.2,95.2,94.5,72470,26245,15893,65.6,12624,36.3,21110,28.8,22843,22.6
+C032,136,A. Weighted vote,"flat weights, 5 neighbour(s), excluding S and R",38.4,72.1,92.3,54901,21066,16615,65.5,9494,34.5,14862,26.0,13930,21.9
+C033,110,A. Weighted vote,"very steep weights, 5 neighbour(s), all categories",41.1,97.8,97.3,74441,30572,41108,49.8,23306,30.9,8885,28.7,1142,32.0
+C034,69,A. Weighted vote,"very steep weights, 5 neighbour(s), excluding S and R",46.1,74.7,96.5,56859,26225,39112,51.7,12852,34.7,4142,32.5,753,27.2
+C035,35,B. Majority rule,"at least 2 of the 3 nearest agree, all categories",54.6,36.7,36.8,27926,15236,27926,54.6,0,,0,,0,
+C036,33,B. Majority rule,"at least 2 of the 3 nearest agree, excluding S and R",56.0,36.4,48.1,27699,15505,27699,56.0,0,,0,,0,
+C037,27,B. Majority rule,"at least 3 of the 5 nearest agree, all categories",62.4,27.4,26.2,20886,13038,20886,62.4,0,,0,,0,
+C038,28,B. Majority rule,"at least 3 of the 5 nearest agree, excluding S and R",61.4,29.3,36.6,22285,13693,22285,61.4,0,,0,,0,
+C039,8,B. Majority rule,"at least 4 of the 5 nearest agree, all categories",78.4,11.1,9.9,8469,6637,8469,78.4,0,,0,,0,
+C040,16,B. Majority rule,"at least 4 of the 5 nearest agree, excluding S and R",72.8,14.2,17.5,10782,7845,10782,72.8,0,,0,,0,
+C041,6,B. Majority rule,"at least 5 of the 7 nearest agree, all categories",80.5,10.3,8.5,7842,6309,7842,80.5,0,,0,,0,
+C042,10,B. Majority rule,"at least 5 of the 7 nearest agree, excluding S and R",77.3,12.9,14.2,9842,7608,9842,77.3,0,,0,,0,
+C043,7,B. Majority rule,"at least 6 of the 9 nearest agree, all categories",80.3,9.8,7.8,7448,5981,7448,80.3,0,,0,,0,
+C044,9,B. Majority rule,"at least 6 of the 9 nearest agree, excluding S and R",78.0,12.3,12.6,9357,7303,9357,78.0,0,,0,,0,
+C045,94,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 30% of the vote, all categories",43.7,75.3,75.4,57341,25055,20776,63.2,14727,36.2,21838,30.2,0,
+C046,71,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 30% of the vote, excluding S and R",46.0,62.5,81.3,47547,21868,21182,63.6,11088,35.1,15277,29.5,0,
+C047,41,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 40% of the vote, all categories",52.0,46.6,45.6,35503,18455,20776,63.2,14727,36.2,0,,0,
+C048,37,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 40% of the vote, excluding S and R",53.8,42.4,53.7,32270,17368,21182,63.6,11088,35.1,0,,0,
+C049,24,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 50% of the vote, all categories",63.2,27.3,25.2,20776,13128,20776,63.2,0,,0,,0,
+C050,23,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 50% of the vote, excluding S and R",63.6,27.8,32.8,21182,13474,21182,63.6,0,,0,,0,
+C051,13,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 60% of the vote, all categories",74.5,16.0,13.4,12142,9051,12142,74.5,0,,0,,0,
+C052,14,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 60% of the vote, excluding S and R",74.4,17.6,18.9,13394,9962,13394,74.4,0,,0,,0,
+C053,4,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 70% of the vote, all categories",83.6,9.6,7.3,7319,6117,7319,83.6,0,,0,,0,
+C054,5,C. Confidence cutoff,"linear weights, 5 neighbours, predict only if winner has >= 70% of the vote, excluding S and R",82.3,11.1,10.8,8413,6920,8413,82.3,0,,0,,0,
+C055,102,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 30% of the vote, all categories",42.3,88.5,89.1,67365,28503,28950,57.1,18348,33.5,20067,29.0,0,
+C056,67,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 30% of the vote, excluding S and R",46.3,70.9,92.0,53949,24992,28812,57.7,13353,35.3,11784,30.9,0,
+C057,56,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 40% of the vote, all categories",48.0,62.1,62.8,47298,22684,28950,57.1,18348,33.5,0,,0,
+C058,47,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 40% of the vote, excluding S and R",50.6,55.4,72.4,42165,21348,28812,57.7,13353,35.3,0,,0,
+C059,32,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 50% of the vote, all categories",57.1,38.0,37.2,28950,16535,28950,57.1,0,,0,,0,
+C060,31,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 50% of the vote, excluding S and R",57.7,37.9,48.4,28812,16632,28812,57.7,0,,0,,0,
+C061,21,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 60% of the vote, all categories",66.5,23.8,21.8,18090,12036,18090,66.5,0,,0,,0,
+C062,20,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 60% of the vote, excluding S and R",66.7,24.7,29.7,18783,12519,18783,66.7,0,,0,,0,
+C063,12,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 70% of the vote, all categories",75.3,15.0,12.6,11383,8568,11383,75.3,0,,0,,0,
+C064,11,C. Confidence cutoff,"steeper weights, 5 neighbours, predict only if winner has >= 70% of the vote, excluding S and R",76.0,16.3,18.0,12380,9404,12380,76.0,0,,0,,0,
+C065,142,D. Down-weight common categories,"linear weights, 5 neighbours, votes divided by how common the category is overall, all categories",28.1,100.0,99.9,76105,21405,23218,43.6,17016,27.1,22040,21.0,13831,14.8
+C066,139,D. Down-weight common categories,"linear weights, 5 neighbours, votes divided by how common the category is overall, excluding S and R",35.4,76.6,99.8,58338,20679,21702,49.5,13820,33.1,15077,26.2,7739,18.1
+C067,141,D. Down-weight common categories,"steeper weights, 5 neighbours, votes divided by how common the category is overall, all categories",31.4,100.0,99.9,76105,23892,33916,42.4,18192,24.3,17635,21.6,6362,19.8
+C068,132,D. Down-weight common categories,"steeper weights, 5 neighbours, votes divided by how common the category is overall, excluding S and R",38.9,76.6,99.8,58338,22705,30665,48.8,13056,30.8,11245,26.5,3372,22.1
+C069,140,D. Down-weight common categories,"steeper weights, 3 neighbours, votes divided by how common the category is overall, all categories",32.0,100.0,99.7,76088,24339,40701,40.3,17492,23.3,14160,21.8,3735,20.0
+C070,127,D. Down-weight common categories,"steeper weights, 3 neighbours, votes divided by how common the category is overall, excluding S and R",39.5,76.5,99.2,58255,23028,35760,47.0,11814,29.2,8745,26.8,1936,21.3
+C071,126,E. Consensus across genomes,"each genome predicts with linear weights and 3 neighbours, then genomes vote, all categories",39.6,93.8,93.5,71365,28229,70001,39.8,1038,28.4,289,30.8,37,35.1
+C072,93,E. Consensus across genomes,"each genome predicts with linear weights and 3 neighbours, then genomes vote, excluding S and R",43.9,72.0,92.9,54800,24083,53909,44.2,653,29.9,209,30.6,29,31.0
+C073,129,E. Consensus across genomes,"each genome predicts with linear weights and 5 neighbours, then genomes vote, all categories",39.3,95.0,94.7,72309,28418,70761,39.6,1157,25.8,356,31.7,35,31.4
+C074,97,E. Consensus across genomes,"each genome predicts with linear weights and 5 neighbours, then genomes vote, excluding S and R",43.0,72.7,94.0,55307,23806,54166,43.4,844,27.3,257,28.0,40,27.5
+C075,105,E. Consensus across genomes,"each genome predicts with steeper weights and 3 neighbours, then genomes vote, all categories",41.5,92.5,92.1,70401,29248,69694,41.6,534,34.1,153,30.7,20,50.0
+C076,70,E. Consensus across genomes,"each genome predicts with steeper weights and 3 neighbours, then genomes vote, excluding S and R",46.1,71.6,92.0,54469,25101,53926,46.2,397,30.5,123,28.5,23,47.8
+C077,107,E. Consensus across genomes,"each genome predicts with steeper weights and 5 neighbours, then genomes vote, all categories",41.3,95.0,94.7,72286,29857,71364,41.4,679,34.3,218,33.0,25,20.0
+C078,73,E. Consensus across genomes,"each genome predicts with steeper weights and 5 neighbours, then genomes vote, excluding S and R",45.8,72.9,94.4,55490,25429,54743,46.0,535,30.5,183,26.8,29,27.6
+C079,117,F. Minimum evidence,"steeper weights, 5 neighbours, predict only if >= 2 genomes contribute votes, all categories",40.7,97.7,97.4,74359,30272,28947,57.1,18348,33.5,20067,29.0,6997,25.3
+C080,80,F. Minimum evidence,"steeper weights, 5 neighbours, predict only if >= 2 genomes contribute votes, excluding S and R",45.2,74.8,96.7,56915,25748,28803,57.7,13353,35.3,11784,30.9,2975,25.5
+C081,118,F. Minimum evidence,"steeper weights, 5 neighbours, predict only if >= 3 genomes contribute votes, all categories",40.7,97.7,97.3,74356,30272,28944,57.1,18348,33.5,20067,29.0,6997,25.3
+C082,81,F. Minimum evidence,"steeper weights, 5 neighbours, predict only if >= 3 genomes contribute votes, excluding S and R",45.2,74.8,96.6,56906,25747,28794,57.7,13353,35.3,11784,30.9,2975,25.5
+C083,119,F. Minimum evidence,"steeper weights, 5 neighbours, predict only if >= 5 genomes contribute votes, all categories",40.7,97.2,96.7,73958,30125,28781,57.2,18238,33.5,19970,29.0,6969,25.3
+C084,78,F. Minimum evidence,"steeper weights, 5 neighbours, predict only if >= 5 genomes contribute votes, excluding S and R",45.3,74.3,95.8,56557,25609,28615,57.8,13265,35.3,11720,30.9,2957,25.6
+C085,120,G. More neighbours,"steeper weights, 7 neighbours, all categories",40.7,97.7,97.4,74362,30273,28950,57.1,18348,33.5,20067,29.0,6997,25.3
+C086,82,G. More neighbours,"steeper weights, 7 neighbours, excluding S and R",45.2,74.8,96.8,56924,25752,28812,57.7,13353,35.3,11784,30.9,2975,25.5
+C087,121,G. More neighbours,"steeper weights, 10 neighbours, all categories",40.7,97.7,97.4,74362,30273,28950,57.1,18348,33.5,20067,29.0,6997,25.3
+C088,83,G. More neighbours,"steeper weights, 10 neighbours, excluding S and R",45.2,74.8,96.8,56924,25752,28812,57.7,13353,35.3,11784,30.9,2975,25.5
+C089,112,H. Multi-letter categories,"steeper weights, 5 neighbours, count every letter fully, all categories",41.0,96.8,96.2,73663,30188,26935,58.6,17372,35.2,20209,29.5,9147,25.5
+C090,72,H. Multi-letter categories,"steeper weights, 5 neighbours, count every letter fully, excluding S and R",45.9,73.9,95.2,56246,25805,26755,59.1,12906,37.3,12364,32.6,4221,26.9
+C091,125,H. Multi-letter categories,"steeper weights, 5 neighbours, ignore multi-letter genes, all categories",39.8,97.7,97.5,74366,29566,33919,53.0,19464,31.1,17049,26.5,3934,25.7
+C092,95,H. Multi-letter categories,"steeper weights, 5 neighbours, ignore multi-letter genes, excluding S and R",43.7,75.1,97.4,57146,24974,33877,52.9,13054,31.6,8798,28.9,1417,26.3
+C093,101,I. Other exclusions,"linear weights, 5 neighbours, excluding S only",42.5,74.8,97.0,56969,24193,21182,63.6,11088,35.1,15277,29.5,9422,24.7
+C094,133,I. Other exclusions,"linear weights, 5 neighbours, excluding R only",38.9,98.0,97.7,74599,29029,20776,63.2,14727,36.2,21838,30.2,17258,23.0
+C095,84,I. Other exclusions,"steeper weights, 5 neighbours, excluding S only",45.2,74.8,96.8,56924,25752,28812,57.7,13353,35.3,11784,30.9,2975,25.5
+C096,122,I. Other exclusions,"steeper weights, 5 neighbours, excluding R only",40.7,97.7,97.4,74362,30273,28950,57.1,18348,33.5,20067,29.0,6997,25.3
+C097,144,J. Control,"always predict 'S' (most common category), all categories",26.1,100.0,100.0,76111,19889,0,,0,,0,,76111,26.1
+C098,145,J. Control,"always predict 'J' (most common category), excluding S and R",25.6,76.7,100.0,58356,14928,0,,0,,0,,58356,25.6
+C099,149,J. Control,"random category, weighted by how common each is, all categories",13.1,100.0,100.0,76111,9982,0,,0,,0,,76111,13.1
+C100,150,J. Control,original method run on the neighbours of a different random smORF,12.6,97.7,97.7,74389,9354,19298,14.9,15536,13.1,22357,12.0,17198,10.3
+C101,88,K. Conserved neighbourhood,"category found within 1 neighbour(s) in the most genomes, all categories",44.6,71.0,69.2,54002,24081,52182,45.1,405,41.0,411,36.0,1004,25.0
+C102,49,K. Conserved neighbourhood,"category found within 1 neighbour(s) in the most genomes, excluding S and R",50.3,55.8,67.6,42484,21374,39831,51.8,496,41.9,549,35.0,1608,20.8
+C103,85,K. Conserved neighbourhood,"category found within 1 neighbour(s) in the most genomes, only if in >= 50% of its genomes, all categories",45.1,68.6,65.3,52182,23516,52182,45.1,0,,0,,0,
+C104,42,K. Conserved neighbourhood,"category found within 1 neighbour(s) in the most genomes, only if in >= 50% of its genomes, excluding S and R",51.8,52.3,60.7,39831,20640,39831,51.8,0,,0,,0,
+C105,86,K. Conserved neighbourhood,"category found within 1 neighbour(s) in the most genomes, only if in >= 70% of its genomes, all categories",45.0,64.3,61.2,48943,22026,48943,45.0,0,,0,,0,
+C106,40,K. Conserved neighbourhood,"category found within 1 neighbour(s) in the most genomes, only if in >= 70% of its genomes, excluding S and R",52.1,48.4,56.2,36829,19183,36829,52.1,0,,0,,0,
+C107,92,K. Conserved neighbourhood,"category found within 2 neighbour(s) in the most genomes, all categories",44.2,49.9,49.6,37991,16789,37635,44.3,116,34.5,91,25.3,149,26.2
+C108,60,K. Conserved neighbourhood,"category found within 2 neighbour(s) in the most genomes, excluding S and R",47.0,45.3,58.2,34492,16214,33658,47.7,237,27.8,178,21.9,419,14.6
+C109,90,K. Conserved neighbourhood,"category found within 2 neighbour(s) in the most genomes, only if in >= 50% of its genomes, all categories",44.3,49.4,48.5,37635,16687,37635,44.3,0,,0,,0,
+C110,58,K. Conserved neighbourhood,"category found within 2 neighbour(s) in the most genomes, only if in >= 50% of its genomes, excluding S and R",47.7,44.2,55.2,33658,16048,33658,47.7,0,,0,,0,
+C111,89,K. Conserved neighbourhood,"category found within 2 neighbour(s) in the most genomes, only if in >= 70% of its genomes, all categories",44.5,48.2,46.9,36703,16341,36703,44.5,0,,0,,0,
+C112,55,K. Conserved neighbourhood,"category found within 2 neighbour(s) in the most genomes, only if in >= 70% of its genomes, excluding S and R",48.1,42.3,52.2,32231,15510,32231,48.1,0,,0,,0,
+C113,63,K. Conserved neighbourhood,"category found within 3 neighbour(s) in the most genomes, all categories",46.7,35.0,34.5,26651,12438,26537,46.7,38,42.1,45,22.2,31,25.8
+C114,59,K. Conserved neighbourhood,"category found within 3 neighbour(s) in the most genomes, excluding S and R",47.6,35.0,45.0,26613,12677,26279,48.0,114,26.3,88,21.6,132,19.7
+C115,64,K. Conserved neighbourhood,"category found within 3 neighbour(s) in the most genomes, only if in >= 50% of its genomes, all categories",46.7,34.9,34.1,26537,12404,26537,46.7,0,,0,,0,
+C116,57,K. Conserved neighbourhood,"category found within 3 neighbour(s) in the most genomes, only if in >= 50% of its genomes, excluding S and R",48.0,34.5,43.8,26279,12602,26279,48.0,0,,0,,0,
+C117,61,K. Conserved neighbourhood,"category found within 3 neighbour(s) in the most genomes, only if in >= 70% of its genomes, all categories",46.9,34.3,33.4,26132,12260,26132,46.9,0,,0,,0,
+C118,54,K. Conserved neighbourhood,"category found within 3 neighbour(s) in the most genomes, only if in >= 70% of its genomes, excluding S and R",48.4,33.7,42.0,25613,12384,25613,48.4,0,,0,,0,
+C119,45,K. Conserved neighbourhood,"category found within 5 neighbour(s) in the most genomes, all categories",51.3,19.8,18.9,15103,7751,15085,51.3,10,50.0,5,20.0,3,0.0
+C120,50,K. Conserved neighbourhood,"category found within 5 neighbour(s) in the most genomes, excluding S and R",50.2,21.7,27.5,16550,8300,16498,50.2,24,41.7,14,14.3,14,28.6
+C121,46,K. Conserved neighbourhood,"category found within 5 neighbour(s) in the most genomes, only if in >= 50% of its genomes, all categories",51.3,19.8,18.9,15085,7745,15085,51.3,0,,0,,0,
+C122,51,K. Conserved neighbourhood,"category found within 5 neighbour(s) in the most genomes, only if in >= 50% of its genomes, excluding S and R",50.2,21.7,27.2,16498,8284,16498,50.2,0,,0,,0,
+C123,43,K. Conserved neighbourhood,"category found within 5 neighbour(s) in the most genomes, only if in >= 70% of its genomes, all categories",51.5,19.7,18.6,14977,7709,14977,51.5,0,,0,,0,
+C124,48,K. Conserved neighbourhood,"category found within 5 neighbour(s) in the most genomes, only if in >= 70% of its genomes, excluding S and R",50.6,21.3,26.4,16213,8206,16213,50.6,0,,0,,0,
+C125,18,L. Sandwiched,"closest gene on both sides has the same category, in at least 1 genome, all categories",68.8,24.9,17.9,18965,13046,14098,73.2,458,64.6,621,65.9,3788,53.5
+C126,3,L. Sandwiched,"closest gene on both sides has the same category, in at least 1 genome, excluding S and R",84.0,17.4,13.0,13235,11113,10461,88.2,269,81.0,368,81.0,2137,64.2
+C127,17,L. Sandwiched,"closest gene on both sides has the same category, in at least 2 genomes, all categories",71.6,21.5,14.9,16390,11738,14098,73.2,458,64.6,621,65.9,1213,59.3
+C128,2,L. Sandwiched,"closest gene on both sides has the same category, in at least 2 genomes, excluding S and R",86.9,15.5,11.1,11793,10245,10461,88.2,269,81.0,368,81.0,695,72.7
+C129,15,L. Sandwiched,"closest gene on both sides has the same category, in at least 50% of its genomes, all categories",73.2,18.5,12.6,14098,10314,14098,73.2,0,,0,,0,
+C130,1,L. Sandwiched,"closest gene on both sides has the same category, in at least 50% of its genomes, excluding S and R",88.2,13.7,9.7,10461,9224,10461,88.2,0,,0,,0,
+C131,38,M. Two methods agree,"very steep weights, 3 neighbours, and conserved neighbourhood (3 neighbours) predict the same category, all categories",53.7,28.6,27.7,21761,11688,17569,59.0,3284,32.0,764,30.2,144,26.4
+C132,34,M. Two methods agree,"very steep weights, 3 neighbours, and conserved neighbourhood (3 neighbours) predict the same category, excluding S and R",55.0,29.0,36.9,22047,12134,19379,58.1,2045,34.2,527,29.6,96,25.0
+C133,25,M. Two methods agree,"original method and 'at least 3 of the 5 nearest agree' predict the same category, all categories",63.0,26.7,25.1,20326,12812,16167,68.0,2864,40.3,1110,51.1,185,54.6
+C134,26,M. Two methods agree,"original method and 'at least 3 of the 5 nearest agree' predict the same category, excluding S and R",62.8,28.0,33.7,21288,13379,16954,68.3,2754,37.1,1438,49.8,142,38.7
+C135,146,N. Enrichment over background,"category most enriched within 3 neighbours compared with the whole data, found in >= 2 genomes, all categories",21.8,99.9,99.6,76065,16562,73899,22.2,733,8.7,757,8.2,676,6.4
+C136,143,N. Enrichment over background,"category most enriched within 3 neighbours compared with the whole data, found in >= 2 genomes, excluding S and R",28.0,76.4,98.6,58142,16251,56476,28.5,548,11.9,576,10.6,542,9.6
+C137,148,N. Enrichment over background,"category most enriched within 5 neighbours compared with the whole data, found in >= 2 genomes, all categories",16.4,100.0,99.8,76099,12511,73766,16.8,820,4.9,780,4.7,733,2.6
+C138,147,N. Enrichment over background,"category most enriched within 5 neighbours compared with the whole data, found in >= 2 genomes, excluding S and R",21.4,76.6,99.6,58321,12458,56515,21.9,639,6.6,596,6.5,571,3.3
+C139,115,O. Conservation-weighted vote,"very steep weights, 3 neighbours, each category's vote times the share of genomes that have it, all categories",40.8,96.0,95.2,73048,29799,48481,47.1,20014,28.4,4046,28.3,507,27.0
+C140,74,O. Conservation-weighted vote,"very steep weights, 3 neighbours, each category's vote times the share of genomes that have it, excluding S and R",45.8,73.5,93.9,55920,25601,43535,49.8,9990,31.7,2063,31.8,332,26.8
+C141,135,O. Conservation-weighted vote,"linear weights, 5 neighbours, each category's vote times the share of genomes that have it, all categories",38.7,98.3,98.0,74788,28930,25345,58.8,15788,34.1,21000,28.4,12655,21.0
+C142,103,O. Conservation-weighted vote,"linear weights, 5 neighbours, each category's vote times the share of genomes that have it, excluding S and R",42.0,75.1,97.4,57160,23989,25322,59.3,11681,31.9,13769,27.9,6388,22.2
+C143,53,P. Confidence cutoff (very steep),"very steep weights, 3 neighbours, predict only if winner has >= 50% of the vote, all categories",49.3,55.8,58.2,42445,20906,42445,49.3,0,,0,,0,
+C144,44,P. Confidence cutoff (very steep),"very steep weights, 3 neighbours, predict only if winner has >= 50% of the vote, excluding S and R",51.4,52.4,69.3,39885,20489,39885,51.4,0,,0,,0,
+C145,39,P. Confidence cutoff (very steep),"very steep weights, 3 neighbours, predict only if winner has >= 60% of the vote, all categories",53.7,39.5,41.6,30027,16119,30027,53.7,0,,0,,0,
+C146,36,P. Confidence cutoff (very steep),"very steep weights, 3 neighbours, predict only if winner has >= 60% of the vote, excluding S and R",54.5,39.7,53.9,30215,16482,30215,54.5,0,,0,,0,
+C147,29,P. Confidence cutoff (very steep),"very steep weights, 3 neighbours, predict only if winner has >= 70% of the vote, all categories",59.0,29.1,29.7,22136,13052,22136,59.0,0,,0,,0,
+C148,30,P. Confidence cutoff (very steep),"very steep weights, 3 neighbours, predict only if winner has >= 70% of the vote, excluding S and R",58.7,30.2,41.0,22997,13509,22997,58.7,0,,0,,0,
+C149,19,P. Confidence cutoff (very steep),"very steep weights, 3 neighbours, predict only if winner has >= 80% of the vote, all categories",66.8,19.7,18.7,14970,9997,14970,66.8,0,,0,,0,
+C150,22,P. Confidence cutoff (very steep),"very steep weights, 3 neighbours, predict only if winner has >= 80% of the vote, excluding S and R",66.0,20.9,27.1,15935,10522,15935,66.0,0,,0,,0,
