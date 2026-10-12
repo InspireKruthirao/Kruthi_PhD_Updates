@@ -19,16 +19,17 @@ as in Create_UrbanSoil_GFFs.py; the full eggNOG lines stay in urban_soil.db.
 
     python3 build_smorf_neighbourhoods.py build       build urban_soil.db (skipped if complete)
     python3 build_smorf_neighbourhoods.py check       eggNOG match rate per sample
-    python3 build_smorf_neighbourhoods.py submit      one PBS job per bin
-    python3 build_smorf_neighbourhoods.py bin 6 10    (run by each job) one bin -> parts/bin_6_10.sqlite
-    python3 build_smorf_neighbourhoods.py merge       parts -> smorf_neighbourhoods.sqlite
+    python3 build_smorf_neighbourhoods.py chunk I N   piece I of N (0...N-1) -> parts/chunk_I_of_N.sqlite
+    python3 build_smorf_neighbourhoods.py merge N     the N pieces -> smorf_neighbourhoods.sqlite
     python3 build_smorf_neighbourhoods.py export SMORF_ID [out_dir]   write the 3 files of each occurrence
+
+On the HPC, run_smorf_neighbourhoods.sh does it all: a build job, then the
+N pieces as one PBS array job (all at the same time), then the merge job.
 """
 
 import gzip
 import json
 import lzma
-import subprocess
 import sqlite3
 import sys
 import time
@@ -43,8 +44,6 @@ EGGNOG_DIR = Path("/work/microbiome/users/kruthi/intermediate_results/egg_nog/re
 DB_PATH = Path("/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/urban_soil.db")
 OUT_DIR = Path("/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL")
 OUT_DB = OUT_DIR / "smorf_neighbourhoods.sqlite"
-PYTHON = "/home/n12228516/.conda/envs/kruthi/bin/python3"
-SCRIPT = Path(__file__).resolve()
 
 MIN_OCCURRENCES = 6  # smORFs found in fewer samples are left out (as in _ge6)
 BIN_WIDTH = 5
@@ -372,15 +371,30 @@ SCHEMA = """
 """
 
 
-def run_bin(low, high):
-    """Write the neighbourhoods of every smORF found in low...high samples
-    into a database for this bin, OUT_DIR/parts/bin_<low>_<high>.sqlite."""
+def bin_name(count):
+    """The bin of a smORF found in count samples, e.g. SmORF_neighbourhoods_6_10"""
+    low = 1 + ((count - 1) // BIN_WIDTH) * BIN_WIDTH
+    return f"SmORF_neighbourhoods_{max(low, MIN_OCCURRENCES)}_{low + BIN_WIDTH - 1}"
+
+
+def run_chunk(i, n):
+    """Piece i of n: every n-th smORF (found in >= MIN_OCCURRENCES samples),
+    starting at the i-th, so the n pieces take about the same time.
+    Writes OUT_DIR/parts/chunk_<i>_of_<n>.sqlite."""
     connection = connect(read_only=True)
+    smorfs = connection.execute(
+        "SELECT smorf_id, occurrence_count FROM smorf_summary WHERE occurrence_count >= ? "
+        "ORDER BY smorf_id", (MIN_OCCURRENCES,)).fetchall()[i::n]
+    run_part(connection, [(s, bin_name(c)) for s, c in smorfs], f"chunk_{i}_of_{n}")
+
+
+def run_part(connection, smorfs, label):
+    """Write the neighbourhoods of the given (smorf_id, bin_name) into
+    OUT_DIR/parts/<label>.sqlite"""
     header = connection.execute("SELECT annotation_header FROM eggnog_metadata LIMIT 1").fetchone()[0]
-    bin_name = f"SmORF_neighbourhoods_{low}_{high}"
     parts = OUT_DIR / "parts"
     parts.mkdir(parents=True, exist_ok=True)
-    part = parts / f"bin_{low}_{high}.sqlite"
+    part = parts / f"{label}.sqlite"
     tmp = part.with_suffix(".sqlite.part")
     tmp.unlink(missing_ok=True)
     out = sqlite3.connect(str(tmp))
@@ -388,14 +402,11 @@ def run_bin(low, high):
     out.execute("PRAGMA synchronous=OFF")
     out.executescript(SCHEMA)
 
-    smorfs = [s for (s,) in connection.execute(
-        "SELECT smorf_id FROM smorf_summary WHERE occurrence_count BETWEEN ? AND ? ORDER BY smorf_id",
-        (low, high))]
-    print(f"[{low}_{high}] {len(smorfs):,} smORFs", flush=True)
+    print(f"[{label}] {len(smorfs):,} smORFs", flush=True)
     t0 = time.time()
     totals = {"occurrences": 0, "written": 0, "no_genes": 0, "genes": 0, "with_eggnog": 0}
 
-    for number, smorf_id in enumerate(smorfs, 1):
+    for number, (smorf_id, bin_name) in enumerate(smorfs, 1):
         occurrences = connection.execute(
             "SELECT sample, base_contig, smorf_start, smorf_end FROM smorf_occurrences "
             "WHERE smorf_id = ? ORDER BY sample, base_contig, smorf_start", (smorf_id,)).fetchall()
@@ -433,74 +444,34 @@ def run_bin(low, high):
                     (bin_name, smorf_id, len(occ_rows), json.dumps(occ_json)))
         if number % PROGRESS_EVERY == 0 or number == len(smorfs):
             out.commit()
-            print(f"[{low}_{high}] {number:,}/{len(smorfs):,} smORFs ({time.time() - t0:.0f}s)", flush=True)
+            print(f"[{label}] {number:,}/{len(smorfs):,} smORFs ({time.time() - t0:.0f}s)", flush=True)
 
     out.commit()
     out.close()
     tmp.replace(part)  # only a finished bin gets its final name
     pct = 100 * totals["with_eggnog"] / totals["genes"] if totals["genes"] else 0
-    print(f"[{low}_{high}] DONE: {totals['written']:,} of {totals['occurrences']:,} occurrences written, "
+    print(f"[{label}] DONE: {totals['written']:,} of {totals['occurrences']:,} occurrences written, "
           f"{totals['no_genes']:,} without genes; {totals['with_eggnog']:,} of {totals['genes']:,} "
           f"genes have eggNOG ({pct:.1f}%)", flush=True)
 
 
-def bins(connection):
-    """[(low, high, n_smorfs)] for every non-empty bin from MIN_OCCURRENCES up"""
-    max_count = connection.execute("SELECT MAX(occurrence_count) FROM smorf_summary").fetchone()[0]
-    first = 1 + ((MIN_OCCURRENCES - 1) // BIN_WIDTH) * BIN_WIDTH
-    result = []
-    for low in range(first, max_count + 1, BIN_WIDTH):
-        high = low + BIN_WIDTH - 1
-        low = max(low, MIN_OCCURRENCES)
-        n = connection.execute("SELECT COUNT(*) FROM smorf_summary WHERE occurrence_count BETWEEN ? AND ?",
-                               (low, high)).fetchone()[0]
-        if n:
-            result.append((low, high, n))
-    return result
-
-
-def submit():
-    """One PBS job per bin; bins that already have a finished part are skipped."""
-    if not complete():
-        sys.exit("No complete database yet: run 'build' first")
-    logs = OUT_DIR / "logs"
-    logs.mkdir(parents=True, exist_ok=True)
-    for low, high, n in bins(connect(read_only=True)):
-        if (OUT_DIR / "parts" / f"bin_{low}_{high}.sqlite").exists():
-            print(f"  bin {low}_{high}: already done, skipped")
-            continue
-        job = f"""#!/bin/bash
-#PBS -l select=1:ncpus=1:mem=16gb
-#PBS -l walltime=48:00:00
-#PBS -q cpu_batch_exec
-set -eo pipefail
-export PYTHONNOUSERSITE=1
-{PYTHON} -s -u "{SCRIPT}" bin {low} {high}
-"""
-        result = subprocess.run(["qsub", "-N", f"nb_{low}_{high}", "-o", str(logs / f"bin_{low}_{high}.log"),
-                                 "-j", "oe"], input=job, text=True, capture_output=True)
-        print(f"  bin {low}_{high}: {n:,} smORFs -> {result.stdout.strip() or result.stderr.strip()}")
-    print(f"\nWhen qstat shows no nb_ jobs, run: python3 {SCRIPT.name} merge")
-
-
-def merge():
-    """Combine the per-bin databases into OUT_DB."""
-    expected = bins(connect(read_only=True))
-    missing = [f"{low}_{high}" for low, high, _ in expected
-               if not (OUT_DIR / "parts" / f"bin_{low}_{high}.sqlite").exists()]
+def merge(n):
+    """Combine the n pieces into OUT_DB."""
+    paths = [OUT_DIR / "parts" / f"chunk_{i}_of_{n}.sqlite" for i in range(n)]
+    missing = [p.name for p in paths if not p.exists()]
     if missing:
-        sys.exit(f"Bins not finished yet: {missing}")
+        sys.exit(f"{len(missing)} piece(s) not finished yet: {missing[:10]}")
     OUT_DB.unlink(missing_ok=True)
     out = sqlite3.connect(str(OUT_DB))
     out.execute("PRAGMA journal_mode=OFF")
     out.executescript(SCHEMA)
-    for low, high, _ in expected:
-        out.execute("ATTACH DATABASE ? AS part", (str(OUT_DIR / "parts" / f"bin_{low}_{high}.sqlite"),))
+    for number, path in enumerate(paths, 1):
+        out.execute("ATTACH DATABASE ? AS part", (str(path),))
         for table in ("occurrences", "neighbours", "smorfs", "files"):
             out.execute(f"INSERT INTO {table} SELECT * FROM part.{table}")
         out.commit()
         out.execute("DETACH DATABASE part")
-        print(f"  merged bin {low}_{high}", flush=True)
+        print(f"  merged {number}/{n}", flush=True)
     out.execute("CREATE INDEX idx_occ_smorf ON occurrences(smorf_id)")
     out.commit()
     n_smorfs, n_occ, n_genes, n_egg = out.execute(
@@ -537,12 +508,10 @@ def main():
         build()
     elif command == "check":
         check()
-    elif command == "submit":
-        submit()
-    elif command == "bin" and len(sys.argv) == 4:
-        run_bin(int(sys.argv[2]), int(sys.argv[3]))
-    elif command == "merge":
-        merge()
+    elif command == "chunk" and len(sys.argv) == 4:
+        run_chunk(int(sys.argv[2]), int(sys.argv[3]))
+    elif command == "merge" and len(sys.argv) == 3:
+        merge(int(sys.argv[2]))
     elif command == "export" and len(sys.argv) in (3, 4):
         export(sys.argv[2], sys.argv[3] if len(sys.argv) == 4 else "export")
     else:
