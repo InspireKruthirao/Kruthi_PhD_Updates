@@ -477,6 +477,141 @@ def agree(d, first, second, exclude=()):
     return np.where(ok, p1, d.code("NO_EVIDENCE")), np.where(ok, s1, 0.0)
 
 
+# =========================================== methods added for C151-C184 ==
+# These use the gene strands and distances stored in neighbour_info by
+# build_smorf_neighbourhoods.py (smorf_neighbourhoods.sqlite). For each
+# neighbour gene: side (up/down), same_strand (as the target gene), dist_bp
+# (bp between it and the target gene) and gap_bp (bp between it and the
+# previous gene towards the target). The target gene is the gene the smORF
+# overlaps or, for an intergenic smORF, the next gene.
+
+INFO = r'\["(up|down)", (\d+), (-?\d+), (-?\d+), "[^"]*"\]'
+INFO_AS_OBJECT = r'{"side":"${1}","same":${2},"dist":${3},"gap":${4}}'
+INFO_TYPE = pl.List(pl.Struct({"neighbour_info": pl.List(pl.Struct(
+    {"side": pl.String, "same": pl.Int8, "dist": pl.Int64, "gap": pl.Int64}))}))
+
+_load_db_without_info = load_db
+
+
+def load_db(db_path):
+    """load_db, remembering db_path so that gene_info can read the
+    distances only when a rule needs them."""
+    d = _load_db_without_info(db_path)
+    d.db_path = db_path
+    return d
+
+
+def gene_info(d):
+    """Arrays indexed by neighbour gene (ent, as in d.nb): occ, side (0 up,
+    1 down), same (1 if on the target's strand), dist and gap (bp). Read
+    once from the database, in the same order as load_db. None if the
+    database has no neighbour_info (smorfs_all_bins.sqlite)."""
+    if not hasattr(d, "_info"):
+        conn = sqlite3.connect(d.db_path)
+        raw = pl.DataFrame(conn.execute(
+            "SELECT smorf_id, occurrences_json FROM smorfs ORDER BY bin_name, smorf_id"
+        ).fetchall(), schema=["smorf_id", "json"], orient="row")
+        conn.close()
+        step = -(-raw.height // 64)
+        info = (pl.concat([raw.slice(i, step).lazy().select(
+            pl.col("json").str.replace_all(INFO, INFO_AS_OBJECT).str.json_decode(INFO_TYPE).alias("o"))
+            .explode("o", empty_as_null=True).drop_nulls("o")
+            for i in range(0, raw.height, step)], parallel=True)
+                .collect().with_row_index("occ").unnest("o")
+                .explode("neighbour_info", empty_as_null=True).drop_nulls("neighbour_info")
+                .unnest("neighbour_info"))
+        d._info = None
+        if info.height and info.height == d.nb["ent"].max() + 1:
+            x = {c: info[c].to_numpy() for c in ("occ", "same", "dist", "gap")}
+            x["side"] = (info["side"] == "down").to_numpy().astype(np.int8)
+            if np.array_equal(x["occ"][d.nb["ent"]], d.nb["occ"]):  # same genes, same order
+                d._info = x
+        if d._info is None:
+            print("  (no gene distances in this database: rules C151-C184 predict nothing; "
+                  "use smorf_neighbourhoods.sqlite)", flush=True)
+    return d._info
+
+
+def nothing(d):
+    """NO_EVIDENCE for every smORF (for databases without distances)"""
+    n = d.smorfs.height
+    return np.full(n, d.code("NO_EVIDENCE")), np.zeros(n)
+
+
+def in_operon(d, max_gap):
+    """For each neighbour gene: is it in the same operon as the target
+    gene? That is, it and every gene between it and the target are on the
+    target's strand, with at most max_gap bp between consecutive genes."""
+    info = gene_info(d)
+    fail = ~((info["same"] == 1) & (info["gap"] <= max_gap))
+    run = np.r_[True, (info["occ"][1:] != info["occ"][:-1]) | (info["side"][1:] != info["side"][:-1])]
+    failed = np.cumsum(fail)  # genes are in rank order within each (occurrence, side)
+    starts = np.flatnonzero(run)
+    before = np.repeat(failed[starts] - fail[starts], np.diff(np.r_[starts, len(fail)]))
+    return failed - before == 0
+
+
+def vote_where(d, gene_ok, weight, n, exclude, cutoff=None):
+    """Weighted vote (as weighted_vote, "split") over the neighbour genes
+    with gene_ok[ent], rank <= n; weight is the vote of each nb entry
+    before splitting between the gene's categories."""
+    nb = d.nb
+    keep, k, _ = d.left(tuple(exclude))
+    use = keep & (nb["rank"] <= n) & gene_ok[nb["ent"]]
+    pred, pct = resolve(d, nb["key"][use], weight[use] / k[use], d.smorfs.height)
+    if cutoff:
+        pred = np.where((pred < d.n_cats) & (pct < cutoff - PCT_TOLERANCE), d.code("LOW_CONFIDENCE"), pred)
+    return pred, pct
+
+
+def operon_vote(d, max_gap=100, curve="linear", n=5, exclude=(), cutoff=None):
+    """Only the neighbours in the target gene's operon vote (see
+    in_operon), closer ones more (curve). With cutoff, predict
+    LOW_CONFIDENCE if the winner has < cutoff % of the vote."""
+    if gene_info(d) is None:
+        return nothing(d)
+    weight = np.array([0.0] + [WEIGHTS[curve][r] for r in range(1, MAX_RANK + 1)])[d.nb["rank"]]
+    return vote_where(d, in_operon(d, max_gap), weight, n, exclude, cutoff)
+
+
+def distance_vote(d, half=500, n=5, exclude=()):
+    """Neighbours vote with a weight that halves every `half` bp of
+    distance from the target gene (by bp, not by rank)."""
+    info = gene_info(d)
+    if info is None:
+        return nothing(d)
+    weight = 0.5 ** (np.maximum(info["dist"][d.nb["ent"]], 0) / half)
+    return vote_where(d, np.ones(len(info["occ"]), dtype=bool), weight, n, exclude)
+
+
+def sandwiched_by(d, same_strand=False, max_dist=None, exclude=(), min_genomes=1, min_frac=None):
+    """sandwiched, but the closest gene on each side only counts if it is
+    on the target's strand (same_strand) and/or at most max_dist bp from
+    the target gene."""
+    info = gene_info(d)
+    if info is None:
+        return nothing(d)
+    ok = np.ones(len(info["occ"]), dtype=bool)
+    if same_strand:
+        ok &= info["same"] == 1
+    if max_dist is not None:
+        ok &= info["dist"] <= max_dist
+    nb = d.nb
+    keep = (nb["rank"] == 1) & ~d.excluded(nb["code"], exclude) & ok[nb["ent"]]
+    pair, k = np.unique(nb["occ"][keep].astype(np.int64) * d.n_cats + nb["code"][keep],
+                        return_counts=True)
+    both = pair[k >= 2]
+    key = d.occ_smorf[both // d.n_cats].astype(np.int64) * d.n_cats + both % d.n_cats
+    n_smorfs = d.smorfs.height
+    count = np.bincount(key, minlength=n_smorfs * d.n_cats).reshape(n_smorfs, d.n_cats)
+    n_occ = np.bincount(d.occ_smorf, minlength=n_smorfs)
+    pred, col = top_of(d, count, count >= max(min_genomes, 1))
+    frac = count[np.arange(n_smorfs), col] / np.maximum(n_occ, 1)
+    if min_frac:
+        pred = np.where((pred < d.n_cats) & (frac < min_frac - PCT_TOLERANCE), d.code("NO_EVIDENCE"), pred)
+    return pred, np.where(pred < d.n_cats, frac * 100, 0.0)
+
+
 # ================================================= the 100 combinations ==
 
 def build_combinations(d):
@@ -626,6 +761,39 @@ def build_combinations(d):
             add("P. Confidence cutoff (very steep)", f"very steep weights, 3 neighbours, predict only if "
                 f"winner has >= {cut}% of the vote, {cname}", weighted_vote,
                 curve="very_steep", n=3, exclude=ex, cutoff=cut)
+
+    # ---- added rules C151-C184: gene strands and distances (need smorf_neighbourhoods.sqlite) ----
+
+    # Q. operon vote (12)
+    for gap in (50, 100, 200):
+        for curve in ("flat", "linear"):
+            for cname, ex in cats_opts:
+                add("Q. Operon vote", f"{curve} weights, only neighbours in the target gene's operon (same "
+                    f"strand, <= {gap} bp between genes), {cname}", operon_vote,
+                    max_gap=gap, curve=curve, n=5, exclude=ex)
+
+    # R. sandwiched, with strand and distance (12)
+    for strand, dist, text in ((True, None, "both on the target's strand"),
+                               (False, 100, "both within 100 bp of the target gene"),
+                               (True, 100, "both on the target's strand and within 100 bp")):
+        for genomes, frac, need in ((2, None, "in at least 2 genomes"), (1, 0.5, "in at least 50% of its genomes")):
+            for cname, ex in cats_opts:
+                add("R. Sandwiched (strand/distance)", f"closest gene on both sides has the same category, "
+                    f"{text}, {need}, {cname}", sandwiched_by, same_strand=strand, max_dist=dist,
+                    exclude=ex, min_genomes=genomes, min_frac=frac)
+
+    # S. vote weighted by distance in bp (6)
+    for half in (250, 500, 1000):
+        for cname, ex in cats_opts:
+            add("S. Distance-weighted vote", f"5 neighbours, vote halves every {half} bp from the target "
+                f"gene, {cname}", distance_vote, half=half, n=5, exclude=ex)
+
+    # T. operon vote with confidence cutoff (4)
+    for cut in (50, 70):
+        for cname, ex in cats_opts:
+            add("T. Operon vote + cutoff", f"linear weights, operon neighbours (<= 100 bp), predict only if "
+                f"winner has >= {cut}% of the vote, {cname}", operon_vote,
+                max_gap=100, curve="linear", n=5, exclude=ex, cutoff=cut)
     return combos
 
 
