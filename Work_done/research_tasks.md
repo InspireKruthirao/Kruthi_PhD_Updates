@@ -42,3 +42,11 @@
    - To do - check the best rules on held-out bins (avoid picking the best of 184 on the same data)
    - To do - remove the old GFF scripts (Create_UrbanSoil_GFFs.py and its PBS files), now replaced by build_smorf_neighbourhoods.py
    - To do - ask Luis about deleting the old neighbourhood folders; add the QUT project code (-P) to PBS jobs
+
+  14/10/2026
+   - Kruthi - Fixed _sql_submit.pbs (Analysis): correct Contig column, Original_ID column added, EggNOG_annotations.tsv now one line per gene ("-" if no eggNOG), real eggNOG match-rate check, second occurrence on a contig no longer overwritten, writes the GFF itself (Create_UrbanSoil_GFFs.py no longer needed)
+   - Kruthi - Reran it as 100 PBS jobs: all Neighbourhood_Analysis_SQL_ge6 folders rewritten, files identical to smorf_neighbourhoods.sqlite
+   - Kruthi - eggNOG seed_orthologs files have qcov, scov, pident, evalue, bitscore for each hit; wrote eggnog_hit_quality.py (SmORF_Catalog) to measure how well neighbour/target genes match eggNOG
+   - To do - run eggnog_hit_quality.py, choose a coverage/identity threshold from the table
+   - To do - rerun the 184 rules with weak eggNOG hits removed and compare accuracy
+   - To do - cascade of rules + check on held-out bins; remove Create_UrbanSoil_GFFs.py and its PBS files
