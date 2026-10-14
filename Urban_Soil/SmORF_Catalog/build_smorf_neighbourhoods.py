@@ -22,8 +22,6 @@ as in Create_UrbanSoil_GFFs.py; the full eggNOG lines stay in urban_soil.db.
     python3 build_smorf_neighbourhoods.py chunk I N   piece I of N (0...N-1) -> parts/chunk_I_of_N.sqlite
     python3 build_smorf_neighbourhoods.py merge N     the N pieces -> smorf_neighbourhoods.sqlite
     python3 build_smorf_neighbourhoods.py export SMORF_ID [out_dir]   write the 3 files of each occurrence
-    python3 build_smorf_neighbourhoods.py export-folders I N   piece I of N: rewrite the old folders
-                                                               (FOLDERS_ROOT) with the corrected files
 
 On the HPC, run_smorf_neighbourhoods.sh does it all: a build job, then the
 N pieces as one PBS array job (all at the same time), then the merge job.
@@ -46,7 +44,6 @@ EGGNOG_DIR = Path("/work/microbiome/users/kruthi/intermediate_results/egg_nog/re
 DB_PATH = Path("/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/urban_soil.db")
 OUT_DIR = Path("/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL")
 OUT_DB = OUT_DIR / "smorf_neighbourhoods.sqlite"
-FOLDERS_ROOT = Path("/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL_ge6")
 
 MIN_OCCURRENCES = 6  # smORFs found in fewer samples are left out (as in _ge6)
 BIN_WIDTH = 5
@@ -505,50 +502,6 @@ def export(smorf_id, out_dir):
     print(f"Wrote the files of {len(occs)} occurrence(s) under {Path(out_dir) / smorf_id}")
 
 
-def export_folders(i, n):
-    """Piece i of n (every n-th smORF): write the stored neighbors.tsv,
-    EggNOG_annotations.tsv and <contig>.gff of every occurrence into the
-    old folders, FOLDERS_ROOT/<bin>/<smORF>/<sample>_<contig>/, replacing
-    the files there. If a smORF occurs more than once on the same contig,
-    the first occurrence (lowest start) gets that folder and the others
-    get <sample>_<contig>_<start> (the old folders kept only one)."""
-    if not FOLDERS_ROOT.is_dir():
-        sys.exit(f"Missing {FOLDERS_ROOT}")
-    db = sqlite3.connect(f"file:{OUT_DB}?mode=ro", uri=True, timeout=120)
-    smorfs = [s for (s,) in db.execute("SELECT smorf_id FROM smorfs ORDER BY smorf_id")][i::n]
-    label = f"folders_{i}_of_{n}"
-    print(f"[{label}] {len(smorfs):,} smORFs -> {FOLDERS_ROOT}", flush=True)
-    t0 = time.time()
-    replaced = new = extra = 0
-    for number, smorf_id in enumerate(smorfs, 1):
-        rows = db.execute(
-            "SELECT o.bin_name, o.sample, o.contig, o.smorf_start, f.gff_name, f.neighbors_tsv, "
-            "f.eggnog_annotations_tsv, f.gff FROM occurrences o JOIN files f ON f.occ_id = o.occ_id "
-            "WHERE o.smorf_id = ? ORDER BY o.sample, o.contig, o.smorf_start", (smorf_id,)).fetchall()
-        seen = set()
-        for bin_name, sample, contig, start, gff_name, *blobs in rows:
-            if not (FOLDERS_ROOT / bin_name).is_dir():
-                sys.exit(f"{FOLDERS_ROOT / bin_name} does not exist: the bins do not match the old folders")
-            name = f"{sample}_{contig}"
-            if name in seen:
-                name, extra = f"{name}_{start}", extra + 1
-            seen.add(f"{sample}_{contig}")
-            folder = FOLDERS_ROOT / bin_name / smorf_id / name
-            if folder.is_dir():
-                replaced += 1
-            else:
-                new += 1
-                folder.mkdir(parents=True)
-            neighbors, eggnog, gff = (zlib.decompress(b).decode() for b in blobs)
-            (folder / "neighbors.tsv").write_text(neighbors)
-            (folder / "EggNOG_annotations.tsv").write_text(eggnog)
-            (folder / gff_name).write_text(gff)
-        if number % PROGRESS_EVERY == 0 or number == len(smorfs):
-            print(f"[{label}] {number:,}/{len(smorfs):,} smORFs ({time.time() - t0:.0f}s)", flush=True)
-    print(f"[{label}] DONE: {replaced:,} folders rewritten, {new:,} new folders "
-          f"({extra:,} for smORFs found twice on a contig)", flush=True)
-
-
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command == "build":
@@ -559,8 +512,6 @@ def main():
         run_chunk(int(sys.argv[2]), int(sys.argv[3]))
     elif command == "merge" and len(sys.argv) == 3:
         merge(int(sys.argv[2]))
-    elif command == "export-folders" and len(sys.argv) == 4:
-        export_folders(int(sys.argv[2]), int(sys.argv[3]))
     elif command == "export" and len(sys.argv) in (3, 4):
         export(sys.argv[2], sys.argv[3] if len(sys.argv) == 4 else "export")
     else:
