@@ -32,3 +32,13 @@
    - Kruthi - build_smorf_neighbourhoods.py (SmORF_Catalog): one script that writes all neighbourhoods into one database, smorf_neighbourhoods.sqlite, instead of millions of files; stores neighbors.tsv, EggNOG_annotations.tsv and the GFF of every occurrence, plus gene coordinates, strand and distances for distance-based rules
    - Kruthi - Running it on the HPC as 100 PBS jobs at the same time, merged automatically at the end (run_smorf_neighbourhoods.sh)
    - Next - distance and strand rules (C151 onwards) on the new database; add the QUT project code (-P) to PBS jobs
+
+  13/10/2026
+   - Kruthi - smorf_neighbourhoods.sqlite built: 156,109 smORFs, 1,609,063 occurrences, 17.3M neighbour genes, 80.9% with eggNOG (eggNOG issue fixed); 100 pieces ran in ~30 min
+   - Kruthi - Same sweep results as the old database (C130 88.2%, C027 38.9%), so the new pipeline is correct
+   - Kruthi - Added rules C151-C184 using gene strand and distance: operon vote, sandwiched with strand/distance, distance-weighted vote
+   - Kruthi - Best: C172 (sandwiched, same strand, within 100 bp, excl. S and R) 93.8% accuracy at 9.7% coverage; C164 (same strand) 91.1% at 13.7%; C175 (vote by bp distance) 42.1% at 99.2%, better than the original method
+   - To do - cascade of rules (most accurate rule first, then the next) to predict ~99% of smORFs with accuracy per step
+   - To do - check the best rules on held-out bins (avoid picking the best of 184 on the same data)
+   - To do - remove the old GFF scripts (Create_UrbanSoil_GFFs.py and its PBS files), now replaced by build_smorf_neighbourhoods.py
+   - To do - ask Luis about deleting the old neighbourhood folders; add the QUT project code (-P) to PBS jobs
