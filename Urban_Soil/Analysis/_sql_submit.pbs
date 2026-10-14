@@ -5,15 +5,20 @@ cat > "$SQLSCRIPT" <<'PY'
 import gzip
 import lzma
 import sqlite3
+import sys
 from bisect import bisect_left
 from pathlib import Path
+from urllib.parse import quote
 
 SMORF_FILE = Path("/work/microbiome/users/kruthi/GMSC_MAPPER_urbansoil/UrbanSoil_SMORF_resource/UrbanSoil_100AA_SMORFs_origins.tsv.gz")
 GENE_CATALOG = Path("/work/microbiome/users/kruthi/intermediate_results/urban_soil/Gene_Catalog_Urban_Soil/UrbanSoil.ORF.orig.tsv.xz")
 EGGNOG_DIR = Path("/work/microbiome/users/kruthi/intermediate_results/egg_nog/results")
 BASE_OUT = Path("/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL")
 DB_PATH = BASE_OUT / "urban_soil.db"
+# the neighbourhood folders are written here (the old folders are rewritten)
+OUT_ROOT = Path("/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL_ge6")
 
+MIN_OCCURRENCES = 6  # only smORFs found in >= 6 samples (bins 6_10 and up)
 BIN_WIDTH = 5
 WINDOW = 5
 BATCH = 100_000
@@ -359,20 +364,30 @@ def build(files):
         ),
     )
 
-    match = connection.execute(
+    # share of genes (first million) that have an eggNOG line
+    checked, matched = connection.execute(
         """
-        SELECT 1
-        FROM genes AS g
-        JOIN eggnog AS e
-          ON e.sample = g.sample
-         AND e.query_id = g.annotation_query
-        LIMIT 1
+        SELECT COUNT(*), SUM(EXISTS (
+            SELECT 1 FROM eggnog AS e
+            WHERE e.sample = g.sample
+              AND e.query_id = g.annotation_query))
+        FROM (SELECT sample, annotation_query
+              FROM genes LIMIT 1000000) AS g
         """
     ).fetchone()
 
-    if not match:
+    rate = 100 * (matched or 0) / max(checked, 1)
+
+    print(
+        f"eggNOG match rate: {rate:.1f}% "
+        f"of {checked:,} genes checked",
+        flush=True,
+    )
+
+    if rate < 50:
         raise RuntimeError(
-            "No eggNOG sample + Original_ID match found"
+            f"Only {rate:.1f}% of genes match eggNOG "
+            "(sample + Original_ID): check the inputs"
         )
 
     connection.execute(
@@ -516,7 +531,131 @@ def get_annotations(
     return annotation_map, missing
 
 
-def process_catalogue(connection):
+def strand(value):
+    value = str(value).strip()
+
+    if value in {"1", "+", "1.0"}:
+        return "+"
+
+    if value in {"-1", "-", "-1.0"}:
+        return "-"
+
+    return "."
+
+
+def cog_name(annotation_line):
+    """COG1234-E from an eggNOG line (first COG in eggNOG_OGs, with
+    the COG_category), as in Create_UrbanSoil_GFFs.py; else Unknown"""
+    if not annotation_line:
+        return "Unknown"
+
+    fields = annotation_line.split("\t")
+
+    if len(fields) < 7:
+        return "Unknown"
+
+    category = fields[6].strip()
+
+    for item in fields[4].split(","):
+        cog = item.split("@", 1)[0].strip()
+
+        if cog.startswith("COG"):
+            if category and category != "-":
+                return f"{cog}-{category}"
+
+            return cog
+
+    return "Unknown"
+
+
+def esc(value):
+    return quote(str(value), safe="._:-")
+
+
+def write_files(
+    output_directory,
+    sample,
+    base_contig,
+    smorf_id,
+    smorf_start,
+    smorf_end,
+    neighbour_rows,
+    annotation_map,
+    annotation_header,
+):
+    """neighbors.tsv, EggNOG_annotations.tsv (one line per gene of
+    neighbors.tsv, in the same order, "-" if the gene has no eggNOG)
+    and <contig>.gff (named by COG, as Create_UrbanSoil_GFFs.py)"""
+    neighbors = [
+        "ORF\tSample\tContig\tOriginal_ID\t"
+        "Start\tEnd\tStrand\tPartial\tNote\n"
+    ]
+    eggnog = [
+        "ORF\t" + annotation_header.rstrip("\n").lstrip("#") + "\n"
+    ]
+    gff = ["##gff-version 3\n"]
+
+    for gene in neighbour_rows:
+        line = annotation_map.get(gene["Query"])
+        name = cog_name(line)
+        target = bool(gene["Note"])
+
+        neighbors.append(
+            f"{gene['ORF']}\t{sample}\t{base_contig}\t"
+            f"{gene['Query']}\t{gene['Start']}\t{gene['End']}\t"
+            f"{strand(gene['Strand'])}\t{gene['Partial']}\t"
+            f"{gene['Note']}\n"
+        )
+
+        eggnog.append(
+            f"{gene['ORF']}\t{line or '-'}\n"
+        )
+
+        attributes = [
+            f"ID={esc(gene['ORF'])}",
+            f"Name={esc(name)}",
+            f"target={int(target)}",
+            f"Original_ID={esc(gene['Query'])}",
+        ]
+
+        if target:
+            anchor = (
+                "overlap"
+                if "overlaps" in gene["Note"]
+                else "intergenic"
+            )
+            attributes += [
+                "Note=TARGET_smORF",
+                "colour=1",
+                f"smorf_id={esc(smorf_id)}",
+                f"smorf_start={smorf_start}",
+                f"smorf_end={smorf_end}",
+                f"anchor={anchor}",
+            ]
+
+        gff.append(
+            "\t".join([
+                base_contig,
+                "Prodigal_v2.6.3",
+                "CDS",
+                str(gene["Start"]),
+                str(gene["End"]),
+                "1" if name != "Unknown" else "0.0",
+                strand(gene["Strand"]),
+                "0",
+                ";".join(attributes),
+            ])
+            + "\n"
+        )
+
+    (output_directory / "neighbors.tsv").write_text("".join(neighbors))
+    (output_directory / "EggNOG_annotations.tsv").write_text("".join(eggnog))
+    (output_directory / f"{base_contig}.gff").write_text("".join(gff))
+
+
+def process_catalogue(connection, piece=0, pieces=1):
+    """Write the folders of every pieces-th smORF, starting at the
+    piece-th (so that pieces jobs can run at the same time)."""
     annotation_header = connection.execute(
         "SELECT annotation_header "
         "FROM eggnog_metadata LIMIT 1"
@@ -537,12 +676,15 @@ def process_catalogue(connection):
             max_count + 1,
             BIN_WIDTH,
         )
+        if start + BIN_WIDTH - 1 >= MIN_OCCURRENCES
     ]
 
     bin_counts = {}
-    log_path = BASE_OUT / "bin_creation_log.tsv"
+    log_path = OUT_ROOT / "bin_creation_log.tsv"
+    OUT_ROOT.mkdir(parents=True, exist_ok=True)
 
-    with log_path.open("w") as log:
+    # (only piece 0 writes the bin log)
+    with (log_path if piece == 0 else Path("/dev/null")).open("w") as log:
         log.write(
             "BinStart\tBinEnd\tLabel\t"
             "SmORF_Count\tStatus\tFolder\n"
@@ -593,7 +735,7 @@ def process_catalogue(connection):
         label = f"{start}_{end}"
 
         output_root = (
-            BASE_OUT
+            OUT_ROOT
             / f"SmORF_neighbourhoods_{label}"
         )
 
@@ -614,13 +756,14 @@ def process_catalogue(connection):
             "WHERE occurrence_count BETWEEN ? AND ? "
             "ORDER BY smorf_id",
             (
-                start,
+                max(start, MIN_OCCURRENCES),
                 end,
             ),
-        )
+        ).fetchall()[piece::pieces]
+        total = len(smorf_ids)
 
         summary_path = (
-            output_root / "summary.tsv"
+            output_root / f"summary_{piece}_of_{pieces}.tsv"
         )
 
         with summary_path.open("w") as summary:
@@ -640,11 +783,14 @@ def process_catalogue(connection):
                     "SELECT sample, base_contig, "
                     "smorf_start, smorf_end "
                     "FROM smorf_occurrences "
-                    "WHERE smorf_id = ?",
+                    "WHERE smorf_id = ? "
+                    "ORDER BY sample, base_contig, smorf_start",
                     (
                         smorf_id,
                     ),
                 ).fetchall()
+
+                used = set()
 
                 processed = 0
                 written = 0
@@ -672,38 +818,25 @@ def process_catalogue(connection):
                         skipped_no_genes += 1
                         continue
 
+                    # a second occurrence on the same contig gets its
+                    # start added, instead of overwriting the first
+                    name = f"{sample}_{base_contig}"
+
+                    if name in used:
+                        name = f"{name}_{smorf_start}"
+
+                    used.add(f"{sample}_{base_contig}")
+
                     output_directory = (
                         output_root
                         / smorf_id
-                        / f"{sample}_{base_contig}"
+                        / name
                     )
 
                     output_directory.mkdir(
                         parents=True,
                         exist_ok=True,
                     )
-
-                    with (
-                        output_directory
-                        / "neighbors.tsv"
-                    ).open("w") as output:
-                        output.write(
-                            "ORF\tSample\tContig\t"
-                            "Start\tEnd\tStrand\t"
-                            "Partial\tNote\n"
-                        )
-
-                        for gene in neighbour_rows:
-                            output.write(
-                                f"{gene['ORF']}\t"
-                                f"{sample}\t"
-                                f"{gene['Query']}\t"
-                                f"{gene['Start']}\t"
-                                f"{gene['End']}\t"
-                                f"{gene['Strand']}\t"
-                                f"{gene['Partial']}\t"
-                                f"{gene['Note']}\n"
-                            )
 
                     (
                         annotation_map,
@@ -716,27 +849,17 @@ def process_catalogue(connection):
 
                     eggnog_missing += missing
 
-                    with (
-                        output_directory
-                        / "EggNOG_annotations.tsv"
-                    ).open("w") as output:
-                        output.write(
-                            annotation_header.rstrip("\n")
-                            + "\n"
-                        )
-
-                        for gene in neighbour_rows:
-                            annotation = (
-                                annotation_map.get(
-                                    gene["Query"]
-                                )
-                            )
-
-                            if annotation:
-                                output.write(
-                                    annotation.rstrip("\n")
-                                    + "\n"
-                                )
+                    write_files(
+                        output_directory,
+                        sample,
+                        base_contig,
+                        smorf_id,
+                        smorf_start,
+                        smorf_end,
+                        neighbour_rows,
+                        annotation_map,
+                        annotation_header,
+                    )
 
                     written += 1
 
@@ -766,12 +889,13 @@ def process_catalogue(connection):
 
 
 def main():
-    annotation_files = inputs()
-
-    BASE_OUT.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    """python3 UrbanSoil_Overall_Smorfs_analysis_sql.py build
+           build urban_soil.db (skipped if complete)
+       python3 UrbanSoil_Overall_Smorfs_analysis_sql.py PIECE PIECES
+           write the folders of one piece (run by each array job)
+       python3 UrbanSoil_Overall_Smorfs_analysis_sql.py
+           both, in one job (slow)"""
+    args = sys.argv[1:]
 
     (
         BASE_OUT / "logs"
@@ -794,18 +918,30 @@ def main():
         )
 
         connection = connect()
+    elif len(args) == 2:
+        sys.exit("No complete urban_soil.db yet: run with 'build' first")
     else:
         connection = build(
-            annotation_files
+            inputs()
         )
 
+    if args == ["build"]:
+        connection.close()
+        return
+
+    piece, pieces = (
+        (int(args[0]), int(args[1]))
+        if len(args) == 2
+        else (0, 1)
+    )
+
     try:
-        process_catalogue(connection)
+        process_catalogue(connection, piece, pieces)
     finally:
         connection.close()
 
     print(
-        "\nALL DONE",
+        f"\nALL DONE (piece {piece} of {pieces})",
         flush=True,
     )
 
@@ -813,3 +949,20 @@ def main():
 if __name__ == "__main__":
     main()
 PY
+
+# Submit: one array job, PIECES pieces at the same time (default 100).
+#     bash _sql_submit.pbs        or        bash _sql_submit.pbs 50
+# If urban_soil.db is not complete yet, first run:
+#     python3 $SQLSCRIPT build
+PIECES=${1:-100}
+PYTHON=/home/n12228516/.conda/envs/kruthi/bin/python3
+LOGS=/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/logs
+mkdir -p "$LOGS"
+
+qsub -N US_folders -q cpu_batch_exec -J 0-$((PIECES - 1)) \
+    -l select=1:ncpus=1:mem=8gb -l walltime=24:00:00 -j oe -o "$LOGS/" << JOB
+#!/bin/bash
+set -eo pipefail
+export PYTHONNOUSERSITE=1
+$PYTHON -s -u "$SQLSCRIPT" \$PBS_ARRAY_INDEX $PIECES > "$LOGS/sql_folders_\${PBS_ARRAY_INDEX}_of_$PIECES.log" 2>&1
+JOB
