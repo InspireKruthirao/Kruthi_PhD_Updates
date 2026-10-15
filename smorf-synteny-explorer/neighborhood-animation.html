@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Small ORF Neighborhood Story</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single "player" — stage on top, caption + transport below, like a lab-talk video */
+:root{
+  --bg:#F2F5F7; --surface:#FFFFFF; --fg:#13202A; --muted:#5E6E79; --line:#D6DDE2;
+  --gene:#C5CDD3; --sorf:#D98A0B; --g1:#157A7A; --g2:#4553C9; --g3:#8A5BB8; --band:rgba(21,122,122,.10);
+  --display:"Familjen Grotesk",system-ui,sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0D1317; --surface:#151E24; --fg:#E4EAEE; --muted:#8E9DA7; --line:#24313A;
+  --gene:#34414A; --sorf:#F2A93B; --g1:#3FB8B0; --g2:#8B95F0; --g3:#B993E0; --band:rgba(63,184,176,.13); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0D1317; --surface:#151E24; --fg:#E4EAEE; --muted:#8E9DA7; --line:#24313A;
+  --gene:#34414A; --sorf:#F2A93B; --g1:#3FB8B0; --g2:#8B95F0; --g3:#B993E0; --band:rgba(63,184,176,.13); color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.5}
+.wrap{max-width:960px;margin:0 auto;padding-block:28px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:18px}
+header{display:grid;gap:4px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(24px,4vw,34px);line-height:1.15;margin:0;text-wrap:balance}
+.player{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.stage{overflow-x:auto}
+svg{display:block;width:100%;min-width:560px;height:auto}
+.caption{padding:16px 20px 6px;display:grid;gap:4px;min-height:92px}
+.caption h2{font-family:var(--display);font-weight:500;font-size:19px;margin:0}
+.caption p{margin:0;color:var(--muted);max-width:68ch}
+.transport{display:flex;align-items:center;gap:12px;padding:10px 20px 16px;flex-wrap:wrap}
+button{font:inherit;cursor:pointer}
+#play{font-family:var(--mono);font-size:13px;background:var(--fg);color:var(--surface);border:0;border-radius:6px;padding:7px 14px;min-width:84px}
+#scrub{flex:1;min-width:160px;accent-color:var(--sorf)}
+#clock{font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:0 20px 18px}
+.chips button{font-family:var(--mono);font-size:12px;background:transparent;color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:4px 10px}
+.chips button.on{color:var(--fg);border-color:var(--sorf)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--sorf);outline-offset:2px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:16px;height:10px;border-radius:2px;display:inline-block}
+.note{font-size:13px;color:var(--muted);margin:0;max-width:72ch}
+/* SVG */
+.gene{fill:var(--gene);transition:fill .6s}
+.gene.sorf{fill:var(--sorf)}
+.gene.lit.f-cydA{fill:var(--g1)} .gene.lit.f-cydB{fill:var(--g2)} .gene.lit.f-hyp{fill:var(--g3)}
+.t-mono{font-family:var(--mono);font-size:11px;fill:var(--muted)}
+.t-lab{font-family:var(--body);font-size:12px;fill:var(--fg)}
+.t-head{font-family:var(--display);font-size:15px;fill:var(--fg);font-weight:500}
+.t-val{font-family:var(--mono);font-size:12px;fill:var(--fg)}
+.axis{stroke:var(--line)}
+.baseline{stroke:var(--line);stroke-width:1.5}
+.band{fill:var(--band)}
+.ring{fill:none;stroke:var(--sorf);stroke-width:2}
+.bg-line{stroke:var(--muted);stroke-dasharray:4 4}
+.card{fill:var(--bg);stroke:var(--line)}
+</style>
+<style>body{margin:0}</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Gene neighborhood analysis · animated walkthrough</div>
+    <h1>Predicting a small protein's function from its neighbors</h1>
+  </header>
+
+  <div class="player">
+    <div class="stage"><svg id="svg" viewBox="0 0 760 470" role="img" aria-label="Animated walkthrough of gene-neighborhood function prediction"></svg></div>
+    <div class="caption" aria-live="polite"><h2 id="capT"></h2><p id="capP"></p></div>
+    <div class="transport">
+      <button id="play" type="button">Pause</button>
+      <input id="scrub" type="range" min="0" max="38" step="0.01" value="0" aria-label="Timeline">
+      <span id="clock">0:00 / 0:38</span>
+    </div>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <div class="legend">
+    <span><i style="background:var(--sorf)"></i>Small ORF (37 aa)</span>
+    <span><i style="background:var(--g1)"></i>cydA</span>
+    <span><i style="background:var(--g2)"></i>cydB</span>
+    <span><i style="background:var(--g3)"></i>Conserved hypothetical</span>
+    <span><i style="background:var(--gene)"></i>Other genes</span>
+  </div>
+  <p class="note">Illustrative data modeled on CydX, a real 37-aa subunit of cytochrome <i>bd</i> oxidase. Gene layouts and percentages are invented for teaching; the chart and network are computed from the six example genomes shown.</p>
+</div>
+
+<script>
+const NS="http://www.w3.org/2000/svg", svg=document.getElementById("svg");
+const el=(tag,attrs={},parent=svg)=>{const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);parent.appendChild(e);return e};
+const clamp=v=>Math.max(0,Math.min(1,v)), ease=p=>1-Math.pow(1-clamp(p),3);
+const DUR=38;
+
+const FAM={cydA:{name:"cydA",c:"var(--g1)"},cydB:{name:"cydB",c:"var(--g2)"},hyp:{name:"Hypothetical",c:"var(--g3)"},
+  mfs:{name:"MFS transporter",c:"var(--gene)"},lysr:{name:"LysR regulator",c:"var(--gene)"},trna:{name:"tRNA ligase",c:"var(--gene)"}};
+const genomes=[
+ {name:"Gammaproteobacteria",genes:[["oth",1.0,-1],["mfs",1.3,1],["cydA",1.6,1],["cydB",1.1,1],["sorf",.12,1],["hyp",.35,1],["trna",1.0,-1]]},
+ {name:"Betaproteobacteria", genes:[["trna",.9,1],["oth",1.1,-1],["cydA",1.55,1],["cydB",1.1,1],["sorf",.12,1],["hyp",.35,1],["oth",.8,1]]},
+ {name:"Alphaproteobacteria",genes:[["oth",1.2,-1],["mfs",1.2,-1],["cydA",1.5,1],["cydB",1.05,1],["sorf",.12,1],["oth",1.0,-1]]},
+ {name:"Bacteroidota",       genes:[["oth",1.0,1],["cydA",1.6,1],["cydB",1.1,1],["sorf",.12,1],["hyp",.35,1],["oth",1.2,-1]]},
+ {name:"Actinomycetota",     genes:[["lysr",.9,-1],["oth",1.0,1],["cydA",1.5,1],["cydB",1.1,1],["sorf",.12,1],["oth",1.1,1]]},
+ {name:"Bacillota",          genes:[["oth",1.3,-1],["cydA",1.55,1],["cydB",1.1,1],["sorf",.12,1],["oth",.9,-1],["oth",.8,1]]}];
+
+/* ---------- Tracks view ---------- */
+const U=62,GAP=5,CX=520,H=18;
+const gTracks=el("g");
+const note=el("text",{x:380,y:30,"text-anchor":"middle",class:"t-head",opacity:0},gTracks);
+note.textContent="Conserved block: cydA · cydB · small ORF — same strand in 6 of 6 genomes";
+function arrow(x,w,dir){const h=H/2,hd=Math.min(9,w*.55);
+  return dir>0?`${x},${-h} ${x+w-hd},${-h} ${x+w},0 ${x+w-hd},${h} ${x},${h}`
+              :`${x+w},${-h} ${x+hd},${-h} ${x},0 ${x+hd},${h} ${x+w},${h}`}
+const rows=genomes.map((g,i)=>{
+  const y=72+i*64, row=el("g",{opacity:0},gTracks);
+  const k=g.genes.findIndex(x=>x[0]==="sorf"), w=g.genes.map(x=>x[0]==="sorf"?12:x[1]*U), xs=[];
+  xs[k]=CX-w[k]/2; for(let j=k-1;j>=0;j--)xs[j]=xs[j+1]-GAP-w[j]; for(let j=k+1;j<w.length;j++)xs[j]=xs[j-1]+w[j-1]+GAP;
+  const ci=g.genes.findIndex(x=>x[0]==="cydA");
+  const band=el("rect",{x:xs[ci]-6,y:y-H/2-6,width:xs[k]+w[k]-xs[ci]+12,height:H+12,rx:6,class:"band",opacity:0},row);
+  el("line",{x1:xs[0]-8,x2:xs.at(-1)+w.at(-1)+8,y1:y,y2:y,class:"baseline"},row);
+  const lab=el("text",{x:xs[0]-8,y:y-H/2-8,class:"t-mono"},row); lab.textContent=`${i+1} · ${g.name}`;
+  const genes=g.genes.map((gn,j)=>{const p=el("polygon",{points:arrow(xs[j],w[j],gn[2]),transform:`translate(0 ${y})`,class:`gene f-${gn[0]}${gn[0]==="sorf"?" sorf":""}`},row);p._f=gn[0];return p});
+  let ring=null; if(i===0) ring=el("circle",{cx:CX,cy:y,r:12,class:"ring",opacity:0},row);
+  let names=[]; if(i===0){[["cydA",ci],["cydB",ci+1]].forEach(([n,j])=>{const t=el("text",{x:xs[j]+w[j]/2,y:y+H/2+15,"text-anchor":"middle",class:"t-mono",opacity:0},row);t.textContent=n;names.push(t)});
+    const s=el("text",{x:CX,y:y+H/2+15,"text-anchor":"middle",class:"t-mono",opacity:0},row);s.textContent="sORF";names.push(s)}
+  return {row,band,genes,ring,names,i};
+});
+
+/* ---------- Chart view (computed from the genomes above) ---------- */
+const stats=Object.keys(FAM).map(f=>({f,n:genomes.filter(g=>g.genes.some(x=>x[0]===f)).length}))
+  .map(s=>({...s,p:s.n/genomes.length})).sort((a,b)=>b.p-a.p);
+const gChart=el("g",{opacity:0});
+const ch=el("text",{x:40,y:42,class:"t-head"},gChart); ch.textContent="How often each neighbor family sits within ±3 genes of the small ORF";
+const X0=230,XW=460;
+[0,.25,.5,.75,1].forEach(v=>{el("line",{x1:X0+v*XW,x2:X0+v*XW,y1:66,y2:66+stats.length*52,class:"axis"},gChart);
+  const t=el("text",{x:X0+v*XW,y:66+stats.length*52+18,"text-anchor":"middle",class:"t-mono"},gChart);t.textContent=Math.round(v*100)+"%"});
+const bars=stats.map((s,i)=>{const y=80+i*52;
+  const l=el("text",{x:X0-12,y:y+15,"text-anchor":"end",class:"t-lab"},gChart);l.textContent=FAM[s.f].name;
+  const r=el("rect",{x:X0,y,width:0,height:22,rx:3,fill:FAM[s.f].c},gChart);
+  const v=el("text",{x:X0+8,y:y+15,class:"t-val"},gChart);return {r,v,s}});
+const bgX=X0+.03*XW;
+el("line",{x1:bgX,x2:bgX,y1:66,y2:66+stats.length*52,class:"bg-line"},gChart);
+const bgt=el("text",{x:bgX+6,y:62,class:"t-mono"},gChart);bgt.textContent="background rate ≈ 3%";
+
+/* ---------- Network view ---------- */
+const gNet=el("g",{opacity:0});
+const nh=el("text",{x:40,y:42,class:"t-head"},gNet);nh.textContent="Association network · edge width = co-occurrence";
+const NC={x:270,y:255},R=160;
+const edgesG=el("g",{},gNet),nodesG=el("g",{},gNet);
+const net=stats.map((s,i)=>{const a=-Math.PI/2+i*2*Math.PI/stats.length,x=NC.x+R*Math.cos(a),y=NC.y+R*Math.sin(a);
+  const e=el("line",{x1:NC.x,y1:NC.y,x2:x,y2:y,stroke:s.p>.4?FAM[s.f].c:"var(--muted)","stroke-width":1.5+s.p*9,"stroke-linecap":"round",pathLength:1,"stroke-dasharray":1,"stroke-dashoffset":1,opacity:s.p>.4?1:.5},edgesG);
+  const r=10+s.p*10;el("circle",{cx:x,cy:y,r,fill:FAM[s.f].c,stroke:"var(--surface)","stroke-width":2},nodesG);
+  const t=el("text",{x,y:y+r+15,"text-anchor":"middle",class:"t-lab"},nodesG);t.textContent=`${FAM[s.f].name} · ${Math.round(s.p*100)}%`;
+  return e});
+el("circle",{cx:NC.x,cy:NC.y,r:26,fill:"var(--sorf)",stroke:"var(--surface)","stroke-width":3},nodesG);
+const ct=el("text",{x:NC.x,y:NC.y+4,"text-anchor":"middle",class:"t-mono",style:"fill:var(--surface);font-weight:500"},nodesG);ct.textContent="sORF";
+const card=el("g",{opacity:0},gNet);
+el("rect",{x:500,y:120,width:240,height:236,rx:8,class:"card"},card);
+[["PREDICTION","t-mono",148],["Small subunit of","t-head",174],["cytochrome bd oxidase","t-head",194],
+ ["Evidence","t-mono",228],["• cydA + cydB adjacent in 6/6","t-lab",250],["• Same strand, tight spacing","t-lab",270],
+ ["• Conserved across 6 phyla","t-lab",290],["Next tests","t-mono",322],["Δsorf phenotype · co-IP with CydAB","t-lab",342]]
+ .forEach(([s,c,y])=>{const t=el("text",{x:516,y,class:c},card);t.textContent=s});
+
+/* ---------- Scenes ---------- */
+const scenes=[
+ {t:0, title:"1 · A small ORF with no known domains", text:"Ribo-seq shows a 37-codon ORF being translated. Its sequence matches nothing in Pfam, so homology alone can't tell us what it does."},
+ {t:6, title:"2 · Find homologs in other genomes", text:"Search genome DNA with tblastn and profile HMMs, then line up each hit on the small ORF so the neighborhoods can be compared."},
+ {t:13,title:"3 · Color the neighbors by family", text:"The same two genes, cydA and cydB, sit directly upstream in all six genomes, on the same strand. Other neighbors change from genome to genome."},
+ {t:21,title:"4 · Score co-occurrence against background", text:"Count how often each neighbor family appears within ±3 genes of the small ORF and compare it with the rate expected by chance."},
+ {t:29,title:"5 · Predict function from the strongest links", text:"The strong, conserved links to cydA and cydB point to a small subunit of cytochrome bd oxidase. Deletion and co-purification experiments test the prediction."}];
+const chips=document.getElementById("chips");
+const chipBtns=scenes.map((s,i)=>{const b=document.createElement("button");b.type="button";b.textContent=s.title.split(" · ")[1];b.onclick=()=>{t=s.t+.01;render()};chips.appendChild(b);return b});
+const capT=document.getElementById("capT"),capP=document.getElementById("capP");let lastScene=-1;
+
+function render(){
+  const trOp=1-clamp((t-21)/1.2);
+  gTracks.setAttribute("opacity",trOp); gTracks.style.display=trOp<=0?"none":"";
+  rows.forEach(r=>{
+    const start=r.i===0?0:6+(r.i-1)*.9, a=ease((t-start)/.9);
+    r.row.setAttribute("opacity",a); r.row.setAttribute("transform",`translate(${(1-a)*-40} 0)`);
+    const litT=13+r.i*.3;
+    r.genes.forEach(g=>{const on=(g._f==="cydA"||g._f==="cydB")?t>=litT:g._f==="hyp"?t>=16+r.i*.2:false;g.classList.toggle("lit",on)});
+    r.band.setAttribute("opacity",clamp((t-14.5-r.i*.3)/.6));
+    if(r.ring){const on=t>.8&&t<13; r.ring.setAttribute("opacity",on?.35+.65*Math.abs(Math.sin(t*2.4)):0); r.ring.setAttribute("r",12+5*Math.abs(Math.sin(t*2.4)))}
+    r.names.forEach(n=>n.setAttribute("opacity",clamp((t-13.5)/.6)));
+  });
+  note.setAttribute("opacity",clamp((t-17)/.8));
+  const cOp=clamp((t-21.5)/1)*(1-clamp((t-29)/1)); gChart.setAttribute("opacity",cOp); gChart.style.display=cOp<=0?"none":"";
+  bars.forEach((b,i)=>{const p=ease((t-22.5-i*.45)/1.2),w=XW*b.s.p*p;b.r.setAttribute("width",w);
+    b.v.setAttribute("x",X0+w+8);b.v.textContent=`${Math.round(b.s.p*100*p)}%  (${b.s.n}/6)`;b.v.setAttribute("opacity",p>0?1:0)});
+  const nOp=clamp((t-29.5)/1); gNet.setAttribute("opacity",nOp); gNet.style.display=nOp<=0?"none":"";
+  net.forEach((e,i)=>e.setAttribute("stroke-dashoffset",1-ease((t-30.2-i*.25)/1.2)));
+  card.setAttribute("opacity",clamp((t-33)/.8));
+  let si=0;scenes.forEach((s,i)=>{if(t>=s.t)si=i});
+  if(si!==lastScene){lastScene=si;capT.textContent=scenes[si].title;capP.textContent=scenes[si].text;chipBtns.forEach((b,i)=>b.classList.toggle("on",i===si))}
+  scrub.value=t; const f=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,"0")}`;
+  clock.textContent=`${f(t)} / ${f(DUR)}`;
+}
+
+const scrub=document.getElementById("scrub"),clock=document.getElementById("clock"),playBtn=document.getElementById("play");
+const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+let t=reduce?34:0, playing=!reduce, prev=null;
+function setPlaying(p){playing=p;prev=null;playBtn.textContent=p?"Pause":(t>=DUR?"Replay":"Play")}
+function tick(ts){if(playing){if(prev!==null){t+=(ts-prev)/1000;if(t>=DUR){t=DUR;setPlaying(false)}}prev=ts;render()}requestAnimationFrame(tick)}
+playBtn.onclick=()=>{if(!playing&&t>=DUR)t=0;setPlaying(!playing)};
+scrub.oninput=()=>{t=+scrub.value;render()};
+document.addEventListener("keydown",e=>{if(e.code==="Space"&&e.target.tagName!=="BUTTON"&&e.target.tagName!=="INPUT"){e.preventDefault();playBtn.click()}});
+setPlaying(playing);render();requestAnimationFrame(tick);
+</script>
+</body>
+</html>
