@@ -17,11 +17,11 @@ separate database, smorf_neighbourhoods.sqlite (no millions of files):
 Genes are matched to eggNOG by sample + Original_ID (the eggNOG query ID),
 as in Create_UrbanSoil_GFFs.py; the full eggNOG lines stay in urban_soil.db.
 
-    python3 smorf_neighbourhoods.py build       build urban_soil.db (skipped if complete)
-    python3 smorf_neighbourhoods.py check       eggNOG match rate per sample
-    python3 smorf_neighbourhoods.py chunk I N   piece I of N (0...N-1) -> parts/chunk_I_of_N.sqlite
-    python3 smorf_neighbourhoods.py merge N     the N pieces -> smorf_neighbourhoods.sqlite
-    python3 smorf_neighbourhoods.py export SMORF_ID [out_dir]   write the 3 files of each occurrence
+    python3 smorf_neighbourhoods_sqlite.py build       build urban_soil.db (skipped if complete)
+    python3 smorf_neighbourhoods_sqlite.py check       eggNOG match rate per sample
+    python3 smorf_neighbourhoods_sqlite.py chunk I N   piece I of N (0...N-1) -> parts/chunk_I_of_N.sqlite
+    python3 smorf_neighbourhoods_sqlite.py merge N     the N pieces -> smorf_neighbourhoods.sqlite
+    python3 smorf_neighbourhoods_sqlite.py export SMORF_ID [out_dir]   write the 3 files of each occurrence
 
 On the HPC, run_smorf_neighbourhoods.sh does it all: a build job, then the
 N pieces as one PBS array job (all at the same time), then the merge job.
