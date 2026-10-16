@@ -479,7 +479,7 @@ def agree(d, first, second, exclude=()):
 
 # =========================================== methods added for C151-C184 ==
 # These use the gene strands and distances stored in neighbour_info by
-# build_smorf_neighbourhoods.py (smorf_neighbourhoods.sqlite). For each
+# smorf_neighbourhoods.py (smorf_neighbourhoods.sqlite). For each
 # neighbour gene: side (up/down), same_strand (as the target gene), dist_bp
 # (bp between it and the target gene) and gap_bp (bp between it and the
 # previous gene towards the target). The target gene is the gene the smORF

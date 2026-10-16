@@ -23,7 +23,7 @@ BUILD=$(qsub -N nb_build -q $QUEUE -l select=1:ncpus=1:mem=32gb -l walltime=24:0
 set -eo pipefail
 export PYTHONNOUSERSITE=1
 cd "$CODE"
-$PY -s -u build_smorf_neighbourhoods.py build
+$PY -s -u smorf_neighbourhoods.py build
 JOB
 )
 echo "build:  $BUILD"
@@ -36,7 +36,7 @@ export PYTHONNOUSERSITE=1
 cd "$CODE"
 i=\$PBS_ARRAY_INDEX
 if [ -e "$OUT/parts/chunk_\${i}_of_$N.sqlite" ]; then echo "piece \$i already done"; exit 0; fi
-$PY -s -u build_smorf_neighbourhoods.py chunk \$i $N > "$LOGS/chunk_\${i}_of_$N.log" 2>&1
+$PY -s -u smorf_neighbourhoods.py chunk \$i $N > "$LOGS/chunk_\${i}_of_$N.log" 2>&1
 JOB
 )
 echo "chunks: $CHUNKS ($N pieces)"
@@ -48,7 +48,7 @@ set -eo pipefail
 export PYTHONNOUSERSITE=1
 cd "$CODE"
 grep -h DONE "$LOGS"/chunk_*_of_$N.log | sort -V
-$PY -s -u build_smorf_neighbourhoods.py merge $N
+$PY -s -u smorf_neighbourhoods.py merge $N
 JOB
 )
 echo "merge:  $MERGE"
