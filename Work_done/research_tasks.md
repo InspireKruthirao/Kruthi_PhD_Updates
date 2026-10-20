@@ -50,3 +50,27 @@
    - To do - run eggnog_hit_quality.py, choose a coverage/identity threshold from the table
    - To do - rerun the 184 rules with weak eggNOG hits removed and compare accuracy
    - To do - cascade of rules + check on held-out bins; remove Create_UrbanSoil_GFFs.py and its PBS files
+
+   20/10/26
+   Cluster instead of hand-made rules. Turn each occurrence’s ±5 neighbourhood into a gene string, compare occurrences by similarity (Jaccard), and group similar contexts into clusters.
+Make it fast with similarity-search tools like Spotify’s Annoy, or MinHash.
+Show the results as a network: each cluster is a node, and overlapping clusters are joined by weaker links.
+Don’t collapse genes to COG letters too early, because one letter covers many different genes.
+Think about context size: the same smORF can sit in a long gene block in one genome and a short one in another.
+Watch for blind spots: fixed rules can miss gene arrangements they weren’t designed for.
+Citations matter more than journal impact factor.
+
+What to do:
+
+Prototype the clustering on smorf_neighbourhoods.sqlite: compare each smORF’s occurrences by their neighbours’ COG IDs (Jaccard), then cluster them.
+Give each cluster a consensus COG category and a size, i.e. how many occurrences it holds.
+Add “biggest cluster’s category” as rule C185 and score it against C172 and the cascade, using the held-out check.
+Use COG IDs for matching and COG letters for reporting, which answers the “too coarse” concern.
+Note the ±5 window as a limitation, and check whether long and short gene blocks end up in separate clusters.
+Later: a network view of the clusters for the interface, and repeating the analysis at 90% and 95% smORF identity.
+
+What’s still pending from before:
+
+Get the held-out and cascade results from Friday’s sweep.
+Run the three eggNOG-filtered sweeps and compare them.
+Plot accuracy against coverage for all 184 rules.
