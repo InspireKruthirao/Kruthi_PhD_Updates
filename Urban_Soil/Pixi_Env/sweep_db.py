@@ -612,6 +612,134 @@ def sandwiched_by(d, same_strand=False, max_dist=None, exclude=(), min_genomes=1
     return pred, np.where(pred < d.n_cats, frac * 100, 0.0)
 
 
+# =========================================== methods added for C185-C188 ==
+# Nearest-neighbour vote with Annoy (github.com/spotify/annoy): each smORF is
+# described by which neighbour genes (COG IDs, e.g. COG0146) sit near it, as
+# the share of its occurrences that have each one. Annoy finds the smORFs with
+# the most similar neighbourhoods; their known categories vote. Needs
+# smorf_neighbourhoods.sqlite (COG IDs) and the python-annoy package.
+
+COG_ID = r'\["(?:up|down)", \d+, -?\d+, -?\d+, ("[^"]*")\]'
+COG_TYPE = pl.List(pl.Struct({"neighbour_info": pl.List(pl.String)}))
+
+
+def context_vectors(d, max_rank=3, dims=512):
+    """smORF x COG ID matrix: the share of the smORF's occurrences with that
+    COG ID among the neighbours with rank <= max_rank. Uses the dims COG IDs
+    found near the most smORFs. None if the database has no COG IDs."""
+    key = (max_rank, dims)
+    if not hasattr(d, "_ctx"):
+        d._ctx = {}
+    if key not in d._ctx:
+        d._ctx[key] = None
+        conn = sqlite3.connect(d.db_path)
+        raw = pl.DataFrame(conn.execute(
+            "SELECT smorf_id, occurrences_json FROM smorfs ORDER BY bin_name, smorf_id"
+        ).fetchall(), schema=["smorf_id", "json"], orient="row")
+        conn.close()
+        step = -(-raw.height // 64)
+        cogs = (pl.concat([raw.slice(i, step).lazy().select(
+            pl.col("json").str.replace_all(COG_ID, "${1}").str.json_decode(COG_TYPE).alias("o"))
+            .explode("o", empty_as_null=True).drop_nulls("o")
+            for i in range(0, raw.height, step)], parallel=True)
+                .collect().unnest("o").explode("neighbour_info", empty_as_null=True)
+                .drop_nulls("neighbour_info")["neighbour_info"])
+        if cogs.len() != d.nb["ent"].max() + 1:
+            print("  (no COG IDs in this database: rules C185-C188 predict nothing; "
+                  "use smorf_neighbourhoods.sqlite)", flush=True)
+            return None
+        nb = d.nb
+        first = run_starts(nb["ent"])  # one entry per gene (genes with several letters repeat)
+        use = first[nb["rank"][first] <= max_rank]
+        cog = cogs.gather(nb["ent"][use]).to_numpy()
+        occ, smorf = nb["occ"][use], nb["smorf"][use]
+        ok = cog != ""
+        ids, code = np.unique(cog[ok], return_inverse=True)
+        pair = np.unique(occ[ok].astype(np.int64) * len(ids) + code)  # (occurrence, COG ID) once
+        sm = d.occ_smorf[pair // len(ids)].astype(np.int64)
+        c = pair % len(ids)
+        top = np.argsort(-np.bincount(np.unique(sm * len(ids) + c) % len(ids), minlength=len(ids)))[:dims]
+        col = np.full(len(ids), -1)
+        col[top] = np.arange(len(top))
+        keep = col[c] >= 0
+        print(f"  C185-C188: using {len(top)} of {len(ids)} COG IDs, {100 * keep.mean():.1f}% of "
+              f"(occurrence, COG ID) pairs", flush=True)
+        n_smorfs = d.smorfs.height
+        x = np.zeros((n_smorfs, len(top)), dtype=np.float32)
+        np.add.at(x, (sm[keep], col[c[keep]]), 1.0)
+        x /= np.maximum(np.bincount(d.occ_smorf, minlength=n_smorfs), 1)[:, None]
+        d._ctx[key] = x
+    return d._ctx[key]
+
+
+def target_genes(d):
+    """For each smORF, the set of its target genes (sample, Original_ID),
+    from the occurrences and neighbours tables; {} if the database has none
+    (a filtered copy), and then smORFs on the same gene are not excluded."""
+    if not hasattr(d, "_targets"):
+        d._targets = {}
+        conn = sqlite3.connect(d.db_path)
+        try:
+            rows = conn.execute("SELECT o.smorf_id, o.sample || '|' || n.original_id FROM occurrences o "
+                                "JOIN neighbours n ON n.occ_id = o.occ_id WHERE n.is_target = 1").fetchall()
+        except sqlite3.Error:
+            rows = []
+            print("  (no gene tables: smORFs sharing a target gene are not excluded in C185-C188)", flush=True)
+        conn.close()
+        index = {s: i for i, s in enumerate(d.smorfs["smorf_id"].to_list())}
+        sets = [set() for _ in range(d.smorfs.height)]
+        for smorf_id, gene in rows:
+            if smorf_id in index:
+                sets[index[smorf_id]].add(gene)
+        d._targets = sets if rows else {}
+    return d._targets
+
+
+def annoy_vote(d, k=10, max_rank=3, dims=512, n_trees=20, exclude=()):
+    """Predict the category that the k smORFs with the most similar
+    neighbourhoods (Annoy, angular distance on context_vectors) most often
+    have; each neighbour's vote is its cosine similarity, split between its
+    known categories. The smORF itself is never its own neighbour. pct is
+    the winner's share of the votes."""
+    try:
+        from annoy import AnnoyIndex
+    except ImportError:
+        print("  (python-annoy not installed: rules C185-C188 predict nothing)", flush=True)
+        return nothing(d)
+    x = context_vectors(d, max_rank, dims)
+    if x is None:
+        return nothing(d)
+    has = x.any(axis=1)
+    key = ("index", max_rank, dims, n_trees)
+    if key not in d._ctx:
+        index = AnnoyIndex(x.shape[1], "angular")
+        index.set_seed(0)
+        for i in np.flatnonzero(has):
+            index.add_item(int(i), x[i])
+        index.build(n_trees, n_jobs=1)
+        d._ctx[key] = index
+    index = d._ctx[key]
+
+    shared = target_genes(d)  # smORFs sharing a target gene must not vote for each other
+    known = d.targets.filter(~pl.col("cat").is_in(list(exclude))).group_by("smorf").agg("cat")
+    labels = dict(zip(known["smorf"].to_list(), known["cat"].to_list()))
+    codes = {c: d.code(c) for c in d.labels[:d.n_cats]}
+    keys, votes = [], []
+    for i in np.flatnonzero(has):
+        nn, dist = index.get_nns_by_item(int(i), k + 1, include_distances=True)
+        near = [(j, dj) for j, dj in zip(nn, dist) if j != i][:k]  # (i may not come first on ties)
+        for j, dj in near:
+            if j not in labels or (shared and not shared[i].isdisjoint(shared[j])):
+                continue
+            w = max(0.0, 1.0 - dj * dj / 2) / len(labels[j])  # cosine similarity, split
+            for c in labels[j]:
+                keys.append(int(i) * d.n_cats + codes[c])
+                votes.append(w)
+    if not keys:
+        return nothing(d)
+    return resolve(d, np.array(keys, dtype=np.int64), np.array(votes), d.smorfs.height)
+
+
 # ================================================= the 100 combinations ==
 
 def build_combinations(d):
@@ -794,6 +922,14 @@ def build_combinations(d):
             add("T. Operon vote + cutoff", f"linear weights, operon neighbours (<= 100 bp), predict only if "
                 f"winner has >= {cut}% of the vote, {cname}", operon_vote,
                 max_gap=100, curve="linear", n=5, exclude=ex, cutoff=cut)
+
+    # ---- added rules C185-C188: nearest-neighbour vote with Annoy ----
+
+    # U. Annoy nearest neighbours (4)
+    for k in (10, 25):
+        for cname, ex in cats_opts:
+            add("U. Annoy nearest neighbours", f"the {k} smORFs with the most similar neighbourhoods "
+                f"(COG IDs within 3 genes, Annoy) vote, {cname}", annoy_vote, k=k, exclude=ex)
     return combos
 
 
