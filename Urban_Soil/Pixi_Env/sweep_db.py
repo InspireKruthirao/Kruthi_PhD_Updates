@@ -742,6 +742,61 @@ def annoy_vote(d, k=10, max_rank=3, dims=512, n_trees=20, exclude=()):
     return resolve(d, np.array(keys, dtype=np.int64), np.array(votes), d.smorfs.height)
 
 
+# =========================================== methods added for C189-C192 ==
+# The same nearest-neighbour vote as C185-C188, with Voyager
+# (github.com/spotify/voyager), Spotify's successor to Annoy: a graph (HNSW)
+# instead of trees, usually more accurate and faster, and new smORFs can be
+# added to an index later (for scaling up, e.g. to SPIRE). Needs the voyager
+# package.
+
+def voyager_vote(d, k=10, max_rank=3, dims=512, M=12, ef_construction=200, query_ef=100, exclude=()):
+    """As annoy_vote, with a Voyager index (cosine distance on
+    context_vectors): the k smORFs with the most similar neighbourhoods
+    vote for their known categories, each with its cosine similarity,
+    split between its categories; never the smORF itself, nor smORFs that
+    share a target gene with it. query_ef is how many candidates each
+    search looks through (more is slower and more accurate)."""
+    try:
+        from voyager import Index, Space
+    except ImportError:
+        print("  (voyager not installed: rules C189-C192 predict nothing)", flush=True)
+        return nothing(d)
+    x = context_vectors(d, max_rank, dims)
+    if x is None:
+        return nothing(d)
+    has = np.flatnonzero(x.any(axis=1))
+    if not len(has):
+        return nothing(d)
+    key = ("voyager", max_rank, dims, M, ef_construction)
+    if key not in d._ctx:
+        index = Index(Space.Cosine, num_dimensions=x.shape[1], M=M, ef_construction=ef_construction,
+                      random_seed=1, max_elements=len(has))
+        index.add_items(x[has], ids=has.tolist(), num_threads=1)  # (one thread: the same index every run)
+        d._ctx[key] = index
+    index = d._ctx[key]
+    n_query = min(k + 1, len(has))
+    nn, dist = index.query(x[has], k=n_query, query_ef=max(query_ef, n_query))
+    nn = nn.astype(np.int64)
+
+    shared = target_genes(d)  # smORFs sharing a target gene must not vote for each other
+    known = d.targets.filter(~pl.col("cat").is_in(list(exclude))).group_by("smorf").agg("cat")
+    labels = dict(zip(known["smorf"].to_list(), known["cat"].to_list()))
+    codes = {c: d.code(c) for c in d.labels[:d.n_cats]}
+    keys, votes = [], []
+    for row, i in enumerate(has):
+        near = [(j, dj) for j, dj in zip(nn[row].tolist(), dist[row].tolist()) if j != i][:k]
+        for j, dj in near:
+            if j not in labels or (shared and not shared[i].isdisjoint(shared[j])):
+                continue
+            w = max(0.0, 1.0 - dj) / len(labels[j])  # cosine similarity (Voyager gives 1 - cosine), split
+            for c in labels[j]:
+                keys.append(int(i) * d.n_cats + codes[c])
+                votes.append(w)
+    if not keys:
+        return nothing(d)
+    return resolve(d, np.array(keys, dtype=np.int64), np.array(votes), d.smorfs.height)
+
+
 # ================================================= the 100 combinations ==
 
 def build_combinations(d):
@@ -932,6 +987,14 @@ def build_combinations(d):
         for cname, ex in cats_opts:
             add("U. Annoy nearest neighbours", f"the {k} smORFs with the most similar neighbourhoods "
                 f"(COG IDs within 3 genes, Annoy) vote, {cname}", annoy_vote, k=k, exclude=ex)
+
+    # ---- added rules C189-C192: the same with Voyager ----
+
+    # V. Voyager nearest neighbours (4)
+    for k in (10, 25):
+        for cname, ex in cats_opts:
+            add("V. Voyager nearest neighbours", f"the {k} smORFs with the most similar neighbourhoods "
+                f"(COG IDs within 3 genes, Voyager) vote, {cname}", voyager_vote, k=k, exclude=ex)
     return combos
 
 

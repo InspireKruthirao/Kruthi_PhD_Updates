@@ -14,3 +14,12 @@ matplotlib-base = ">=3.9"
 
 [tasks]
 sweep = "python sweep_db.py"
+
+[target.linux-64.dependencies]
+voyager = ">=2.1"
+
+[target.osx-64.dependencies]
+voyager = ">=2.1"
+
+[target.win-64.dependencies]
+voyager = ">=2.1"
