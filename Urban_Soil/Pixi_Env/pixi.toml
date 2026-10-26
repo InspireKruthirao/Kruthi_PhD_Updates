@@ -10,6 +10,7 @@ python = ">=3.9"
 polars = ">=1.44.2,<2"
 numpy = ">=2.5.3,<3"
 python-annoy = ">=1.17.3,<2"
+matplotlib-base = ">=3.9"
 
 [tasks]
 sweep = "python sweep_db.py"
