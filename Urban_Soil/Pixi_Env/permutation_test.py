@@ -48,17 +48,17 @@ class Neighbourhoods:
     """Every neighbour gene of every occurrence, as numpy arrays.
 
     Genes: occ (occurrence), up (1 upstream, 0 downstream), rank (1 is the
-    closest), dist (bp from the target gene). Category rows: gene, cat (a
-    gene with several categories has several rows, a gene with none has
-    none). Each occurrence's genes are its "slots": randomising changes
-    which gene sits in which slot."""
+    closest), dist (bp from the target gene), same (on the target's
+    strand). Category rows: gene, cat (a gene with several categories has
+    several rows, a gene with none has none). Each occurrence's genes are
+    its "slots": randomising changes which gene sits in which slot."""
 
     def __init__(self, db_path):
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         rows = conn.execute("SELECT bin_name, smorf_id, occurrences_json FROM smorfs "
                             "ORDER BY bin_name, smorf_id")
         cats, known = {}, []
-        occ_smorf, g_occ, g_up, g_rank, g_dist, c_gene, c_cat = [], [], [], [], [], [], []
+        occ_smorf, g_occ, g_up, g_rank, g_dist, g_same, c_gene, c_cat = [], [], [], [], [], [], [], []
         for s, (_, _, text) in enumerate(rows):
             k = set()
             for o in json.loads(text):
@@ -75,6 +75,7 @@ class Neighbourhoods:
                     g_up.append(info[0] == "up")
                     g_rank.append(rank)
                     g_dist.append(info[2])
+                    g_same.append(bool(info[1]))
             known.append(k)
         conn.close()
         self.cats = sorted(cats, key=cats.get)
@@ -85,6 +86,7 @@ class Neighbourhoods:
         self.up = np.array(g_up, dtype=bool)
         self.rank = np.array(g_rank, dtype=np.int64)
         self.dist = np.array(g_dist, dtype=np.int64)
+        self.same = np.array(g_same, dtype=bool)
         self.c_gene = np.array(c_gene, dtype=np.int64)
         self.c_cat = np.array(c_cat, dtype=np.int64)
         # known[s, c]: c is a known category of smORF s
