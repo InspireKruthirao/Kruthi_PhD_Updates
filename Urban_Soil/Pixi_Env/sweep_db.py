@@ -8,7 +8,9 @@ PART 2 - EVALUATE  each combination is scored ONLY on smORFs that already
                    have a known COG category     -> combinations_results.csv
                                                     results_by_bin.csv
 
-    python3 sweep_db.py [db]        (default db: smorfs_all_bins.sqlite)
+    python3 sweep_db.py [db]          show the results on screen, save nothing
+    python3 sweep_db.py [db] --save   also save the files below
+                                      (default db: smorfs_all_bins.sqlite)
 
 The input is the database written by build_all_bins_db.py: one row per
 (bin, smORF), with a JSON list of the smORF's occurrences (one per genome
@@ -935,11 +937,12 @@ def build_combinations(d):
 
 # ===================================================== PART 1: PREDICT ==
 
-def predict(d, combos):
+def predict(d, combos, save=True):
     """Every combination predicts for every smORF, annotated or not.
 
     Writes predictions_all_smorfs.tsv (one row per smORF, one column per
-    rule) and returns the predictions and their pct, as dicts by rule ID."""
+    rule) if save, and returns the predictions and their pct, as dicts by
+    rule ID."""
     preds, pcts = {}, {}
     for c in combos:
         t = time.time()
@@ -948,6 +951,8 @@ def predict(d, combos):
         print(f"  {c['id']}  predicted {made / d.smorfs.height * 100:5.1f}% of smORFs  "
               f"({time.time() - t:.1f}s)  {c['rule']}", flush=True)
 
+    if not save:
+        return preds, pcts
     labels = pl.Series(d.labels)
     (d.smorfs.select("bin", "smorf_id",
                      annotated=pl.when("annotated").then(pl.lit("yes")).otherwise(pl.lit("no")),
@@ -965,14 +970,15 @@ def pct(a, b):
     return f"{a / b * 100:.1f}" if b else ""
 
 
-def evaluate(d, combos, preds, pcts):
+def evaluate(d, combos, preds, pcts, save=True):
     """Score each combination ONLY on smORFs with a known COG category.
 
     A smORF is evaluated if the rule predicts a category for it and it has
     a known category not excluded by the rule; the prediction is correct if
     it is any of its known categories. Coverage is the share of annotated
     smORFs that are evaluated. Accuracy is also given per confidence tier
-    (TIERS, by pct). Writes combinations_results.csv and results_by_bin.csv."""
+    (TIERS, by pct). Shows every rule, most accurate first, and, if save,
+    writes combinations_results.csv and results_by_bin.csv."""
     bins = sorted(set(d.smorfs["bin"].to_list()))
     bin_of = d.smorfs["bin"].cast(pl.Enum(bins)).to_physical().to_numpy()
     annotated = d.smorfs["annotated"].to_numpy()
@@ -1027,34 +1033,43 @@ def evaluate(d, combos, preds, pcts):
             "Evaluated (n)", "Correct (n)"] + [f"{t} {x}" for t, _ in TIERS for x in ("n", "accuracy (%)")]
     for name, out, fields in (("combinations_results.csv", rows, cols),
                               ("results_by_bin.csv", by_bin, list(by_bin[0]))):
+        if not save:
+            break
         with open(name, "w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=fields)
             w.writeheader()
             w.writerows(out)
 
     print(f"\nAnnotated smORFs used for evaluation: {d.smorfs['annotated'].sum():,} of {d.smorfs.height:,}")
-    print("\nTop 10 by accuracy:")
-    for r in ranked[:10]:
-        print(f"  {r['ID']}  accuracy {r['Accuracy (%)']:>5}%  coverage "
-              f"{r['Coverage (% of annotated smORFs evaluated)']:>5}%  {r['Rule']}")
+    print("\nAll rules, most accurate first:")
+    print(f"  {'rank':>4}  {'ID':4}  {'accuracy':>8}  {'coverage':>8}  {'evaluated':>9}  group: rule")
+    for r in ranked:
+        print(f"  {r['Accuracy rank']:>4}  {r['ID']}  {r['Accuracy (%)']:>7}%  "
+              f"{r['Coverage (% of annotated smORFs evaluated)']:>7}%  {r['Evaluated (n)']:>9,}  "
+              f"{r['Group']}: {r['Rule']}")
     orig = next(r for r in rows if "ORIGINAL" in r["Rule"] and "all categories" in r["Rule"])
     print(f"\nOriginal method ({orig['ID']}): accuracy {orig['Accuracy (%)']}%  "
           f"coverage {orig['Coverage (% of annotated smORFs evaluated)']}%")
 
 
 def main():
-    db = sys.argv[1] if len(sys.argv) > 1 else "smorfs_all_bins.sqlite"
+    args = [a for a in sys.argv[1:] if a != "--save"]
+    save = "--save" in sys.argv[1:]
+    db = args[0] if args else "smorfs_all_bins.sqlite"
     t0 = time.time()
     d = load_db(db)
     print(f"Loaded {d.smorfs.height:,} smORFs in {time.time() - t0:.1f}s", flush=True)
     combos = build_combinations(d)
 
     print(f"\nPART 1 - PREDICT: {len(combos)} combinations on all smORFs", flush=True)
-    preds, pcts = predict(d, combos)
+    preds, pcts = predict(d, combos, save)
 
     print("\nPART 2 - EVALUATE: annotated smORFs only", flush=True)
-    evaluate(d, combos, preds, pcts)
+    evaluate(d, combos, preds, pcts, save)
 
+    if not save:
+        print(f"\nDone in {(time.time() - t0) / 60:.1f} min. No files saved (add --save to save them).")
+        return
     print(f"\nDone in {(time.time() - t0) / 60:.1f} min. Saved:")
     print("  combinations_results.csv   the sheet: one row per rule, accuracy in %")
     print("  results_by_bin.csv         the same, per bin")

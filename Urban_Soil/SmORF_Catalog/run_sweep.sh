@@ -23,6 +23,6 @@ mkdir -p "$RESULTS"
 cd "$RESULTS"
 echo "Database: $DB"
 echo "Results:  $RESULTS"
-pixi run --manifest-path "$PIXI_ENV/pixi.toml" python "$PIXI_ENV/sweep_db.py" "$DB" 2>&1 | tee sweep.log
+pixi run --manifest-path "$PIXI_ENV/pixi.toml" python "$PIXI_ENV/sweep_db.py" "$DB" --save 2>&1 | tee sweep.log
 pixi run --manifest-path "$PIXI_ENV/pixi.toml" python "$PIXI_ENV/cascade.py" . 2>&1 | tee -a sweep.log
 pixi run --manifest-path "$PIXI_ENV/pixi.toml" python "$PIXI_ENV/plot_rules.py" . 2>&1 | tee -a sweep.log
