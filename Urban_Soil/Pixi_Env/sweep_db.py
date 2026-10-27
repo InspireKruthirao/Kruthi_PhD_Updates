@@ -44,6 +44,7 @@ NO_CALL = ["NO_EVIDENCE", "UNRESOLVED", "LOW_CONFIDENCE", "TOO_FEW_OCCURRENCES"]
 TIERS = (("VERY_HIGH", 50), ("HIGH", 40), ("MEDIUM", 30), ("LOW", 0))
 TIE_TOLERANCE = 1e-9
 PCT_TOLERANCE = 1e-9  # scores are not rounded: exactly 50% may come out as 49.99999999999999
+SIM_TOLERANCE = 1e-6  # similarity 0 may come out as 3e-08 (Annoy's distances are rounded)
 
 MAX_RANK = 10
 WEIGHTS = {  # weight of the neighbour at each distance (rank 1 = closest)
@@ -755,10 +756,12 @@ def nearest(d, engine, k, max_rank, dims, **opts):
 def similar_vote(d, engine="annoy", k=10, max_rank=3, dims=512, exclude=(), **opts):
     """Predict the category that the k smORFs with the most similar
     neighbourhoods (see nearest; cosine similarity of context_vectors) most
-    often have; each one's vote is its cosine similarity (at least 0),
-    split between its known categories. The smORF itself is never its own
-    neighbour, and smORFs that share a target gene (see target_genes) do
-    not vote for each other. pct is the winner's share of the votes.
+    often have; each one's vote is its cosine similarity, split between its
+    known categories. A smORF with similarity 0 (nothing in common; up to
+    SIM_TOLERANCE, as Annoy's distances are rounded) does not vote, so a smORF whose neighbours share nothing with it gets
+    NO_EVIDENCE. The smORF itself is never its own neighbour, and smORFs
+    that share a target gene (see target_genes) do not vote for each other.
+    pct is the winner's share of the votes.
 
     opts are the settings of the engine: n_trees for Annoy; M,
     ef_construction and query_ef (how many candidates each search looks
@@ -784,7 +787,7 @@ def similar_vote(d, engine="annoy", k=10, max_rank=3, dims=512, exclude=(), **op
     n_known = np.bincount(known_smorf, minlength=d.smorfs.height)
     first_known = np.r_[0, np.cumsum(n_known)][:-1]
 
-    ok = n_known[j] > 0
+    ok = (n_known[j] > 0) & (s > SIM_TOLERANCE)  # a neighbour with nothing in common does not vote
     targets = target_genes(d)
     if targets is not None:
         ok &= ~share_gene(i, j, targets)
@@ -795,7 +798,7 @@ def similar_vote(d, engine="annoy", k=10, max_rank=3, dims=512, exclude=(), **op
     # one vote per (pair, category of the neighbour), each worth its share of the similarity
     n = n_known[j]
     pos = np.repeat(first_known[j], n) + (np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n))
-    w = np.repeat(np.maximum(s, 0.0) / n, n)
+    w = np.repeat(s / n, n)
     keys = np.repeat(i, n) * d.n_cats + known_code[pos]
     return resolve(d, keys, w, d.smorfs.height)
 
