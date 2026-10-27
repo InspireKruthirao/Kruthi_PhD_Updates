@@ -1,14 +1,12 @@
 #!/bin/bash
 # Runs the 192 rules (Pixi_Env/sweep_db.py) on a neighbourhood database, then
-# the held-out check and cascade (Pixi_Env/cascade.py) and the accuracy vs
-# coverage plot (Pixi_Env/plot_rules.py). Run inside tmux:
+# the held-out check and cascade (Pixi_Env/cascade.py). Run inside tmux:
 #     bash run_sweep.sh                                     smorf_neighbourhoods.sqlite
 #     bash run_sweep.sh smorf_neighbourhoods_q50_s50_p30_e1e-10.sqlite   a filtered copy
 # Results: Neighbourhood_Analysis_SQL/sweep_results/ for the full database,
 # sweep_results_<filter>/ for a filtered copy: combinations_results.csv,
 # results_by_bin.csv, predictions_all_smorfs.tsv, cascade_results.tsv,
-# cascade_predictions.tsv, rules_accuracy_coverage.png/.pdf, rules_pareto.tsv
-# and sweep.log. About 15-20 min.
+# cascade_predictions.tsv and sweep.log. About 10-15 min.
 
 set -eo pipefail
 PIXI_ENV=$(cd "$(dirname "$0")/../Pixi_Env" && pwd)
@@ -25,4 +23,3 @@ echo "Database: $DB"
 echo "Results:  $RESULTS"
 pixi run --manifest-path "$PIXI_ENV/pixi.toml" python "$PIXI_ENV/sweep_db.py" "$DB" --save 2>&1 | tee sweep.log
 pixi run --manifest-path "$PIXI_ENV/pixi.toml" python "$PIXI_ENV/cascade.py" . 2>&1 | tee -a sweep.log
-pixi run --manifest-path "$PIXI_ENV/pixi.toml" python "$PIXI_ENV/plot_rules.py" . 2>&1 | tee -a sweep.log
