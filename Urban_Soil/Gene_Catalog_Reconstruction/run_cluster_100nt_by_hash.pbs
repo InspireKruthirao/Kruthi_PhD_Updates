@@ -1,0 +1,26 @@
+#!/bin/bash
+#PBS -N US_100NT_hash
+#PBS -q cpu_batch_exec
+#PBS -l select=1:ncpus=4:mem=64gb
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o /work/microbiome/users/kruthi/intermediate_results/urban_soil/Gene_Catalog_Reconstruction/cluster_100nt_by_hash.log
+# From 2 November 2026 add: #PBS -P <RPID>
+
+# 100% clustering by hashing (replaces the MMseqs2 linclust job: 100 CPUs, 700 GB, up to 48 h),
+# then checks that the groups are the same as in the old 100NT catalogue.
+#     qsub run_cluster_100nt_by_hash.pbs
+
+set -eo pipefail
+REPO=$HOME/Kruthi_PhD_Updates/Urban_Soil
+BASE=/work/microbiome/users/kruthi/intermediate_results/urban_soil
+OUT=$BASE/Gene_Catalog_Reconstruction
+mkdir -p "$OUT"
+
+run() { pixi run --manifest-path "$REPO/Pixi_Env/pixi.toml" python -u "$REPO/Gene_Catalog_Reconstruction/cluster_100nt_by_hash.py" "$@"; }
+
+echo "Start: $(date)"
+run "$BASE/Prodigal/UrbanSoil.ORF.fna.xz" "$OUT"
+echo "Clustered: $(date)"
+run --compare "$BASE/Gene_Catalog_Urban_Soil/US.100NT.matches.xz" "$OUT/US.100NT.matches.zst"
+echo "End: $(date)"
