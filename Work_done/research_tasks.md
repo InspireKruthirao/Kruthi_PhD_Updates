@@ -74,3 +74,27 @@ What’s still pending from before:
 Get the held-out and cascade results from Friday’s sweep.
 Run the three eggNOG-filtered sweeps and compare them.
 Plot accuracy against coverage for all 184 rules.
+
+  22/10/2026
+   - Kruthi - Added rules C185-C188 to sweep_db.py: nearest-neighbour vote with Annoy (Spotify), as suggested by Andy. Each smORF is described by the COG IDs within 3 genes (top 512 COG IDs); the 10 or 25 smORFs with the most similar neighbourhoods vote for their known category. smORFs sharing a target gene cannot vote for each other
+
+  26/10/2026
+   - Kruthi - plot_rules.py: accuracy against coverage for all rules, with the best trade-offs (Pareto front); run automatically by run_sweep.sh
+   - Kruthi - permutation_test.py: the neighbourhood signal is real. Real accuracy 39-69% vs 16-21% when each smORF gets another smORF's neighbourhood, and vs 35-41% when gene order is shuffled within the window; p < 0.01 for all 3 rules (100 randomisations). Sandwich rule: 68.8% real vs 40.6% order-shuffled, so gene position matters
+   - Kruthi - distance_decay.py: the signal fades with distance. A neighbour shares the smORF's category 40.5% of the time at rank 1, 19.6% at rank 5, ~11% at random; same strand about twice opposite strand (46.0% vs 22.7% at rank 1); 51.2% for same-strand genes within 100 bp. More neighbours raise coverage (73% -> 94%) but lower accuracy (45.4% -> 36.4%)
+   - Kruthi - sweep_db.py shows the results on screen; files only with --save (run_sweep.sh uses --save)
+   - Kruthi - Added rules C189-C192: the same nearest-neighbour vote with Voyager (Spotify's successor to Annoy, more accurate: 100% vs 71% of the true 10 nearest found in a test), for scaling up later (SPIRE). Python 3.14 -> 3.13 in the pixi environment for Voyager
+   - Kruthi - Results (192 rules): Annoy C185 57.7% accuracy at 87.7% coverage, Voyager C189 58.0% at 80.0%, vs 42.3% at 88.5% for the best rule using only the smORF's own neighbours (C055)
+   - Kruthi - Held-out check (cascade.py): best rules equally good on TRAIN and TEST (C172 93.8% / 93.8%), so no overfitting. Cascade: 97.8% of smORFs predicted at 56.1% accuracy; first 3 steps 17.4% at 78.3%
+
+  27/10/2026
+   - Kruthi - sweep_db.py faster, same results (checked on 4 test databases): database read once instead of 3 times, Annoy/Voyager vote with numpy, search shared by the rules that differ only in excluded categories, conserved-neighbourhood counts made once, Annoy searches on all CPUs; merged duplicate functions (sandwiched/sandwiched_by, annoy_vote/voyager_vote). Full sweep 28.9 -> 12.1 min
+   - Kruthi - Annoy/Voyager: a neighbour with nothing in common (similarity 0) no longer votes, so no prediction without evidence (removed the RuntimeWarning)
+   - Kruthi - pixi.toml: [workspace] instead of the old [project] (no more warning); deleted run_signal_tests.sh (the tests are run directly when needed)
+   - Kruthi - C172 in numbers: 9,451 smORFs predicted, 7,353 checked at 93.8% accuracy, 1,251 smORFs without a known function get a high-confidence prediction
+   - Kruthi - KEGG: eggNOG already gives KEGG annotations. Of genes with eggNOG: COG category 94.5%, KO 52.5%, Pathway 32.5%, Module 21.4%. kegg_analysis.py (Analysis) counts how many smORFs could be evaluated with each label (running)
+   - Kruthi - Read Reed, Yuan & de Crecy-Lagard 2026 (preprint, tRNA modification enzymes, COG vs KO): broad COG families mix functionally distinct paralogs (51% COG-KO agreement vs 96% for one-to-one families), so COG labels are imperfect ground truth and KO can be a stricter check
+   - To do - Annoy on all CPUs was slower on the HPC (C185 143 -> 164 s): check how many CPUs Python sees in the PBS job
+   - To do - dereplication: split TRAIN/TEST by 90% smORF cluster, and stop near-identical smORFs voting for each other in Annoy/Voyager
+   - To do - run the 192 rules with KEGG Pathway/Module labels as a second check; run the eggNOG-filtered sweep
+   - To do - remove the old GFF scripts in Analysis; README for the smORF neighbourhood pipeline; add the QUT project code (-P) to PBS jobs before 2 November
