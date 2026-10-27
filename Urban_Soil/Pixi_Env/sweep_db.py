@@ -29,11 +29,13 @@ changes.
 """
 
 import csv
+import os
 import random
 import sqlite3
 import sys
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -393,14 +395,22 @@ def presence(d, n, exclude):
     """For each smORF and category: in how many of the smORF's occurrences
     (genomes) the category is found among the neighbours with rank <= n,
     ignoring the categories in exclude. Returns (count, n_occ): count is a
-    smORF x category array, n_occ the number of occurrences of each smORF."""
+    smORF x category array, n_occ the number of occurrences of each smORF.
+    Made once for each (n, exclude) and shared by the rules (do not modify).
+    """
+    if not hasattr(d, "_presence"):
+        d._presence = {}
+    made = (n, tuple(exclude))
+    if made in d._presence:
+        return d._presence[made]
     nb = d.nb
     keep = (nb["rank"] <= n) & ~d.excluded(nb["code"], exclude)
     pair = np.unique(nb["occ"][keep].astype(np.int64) * d.n_cats + nb["code"][keep])
     key = d.occ_smorf[pair // d.n_cats].astype(np.int64) * d.n_cats + pair % d.n_cats
     n_smorfs = d.smorfs.height
     count = np.bincount(key, minlength=n_smorfs * d.n_cats).reshape(n_smorfs, d.n_cats)
-    return count, np.bincount(d.occ_smorf, minlength=n_smorfs)
+    d._presence[made] = count, np.bincount(d.occ_smorf, minlength=n_smorfs)
+    return d._presence[made]
 
 
 def top_of(d, score, eligible):
@@ -657,8 +667,8 @@ def context_vectors(d, max_rank=3, dims=512):
         print(f"  C185-C192: using {len(top)} of {len(ids)} COG IDs, {100 * keep.mean():.1f}% of "
               f"(occurrence, COG ID) pairs", flush=True)
         n_smorfs = d.smorfs.height
-        x = np.zeros((n_smorfs, len(top)), dtype=np.float32)
-        np.add.at(x, (sm[keep], col[c[keep]]), 1.0)
+        x = np.bincount(sm[keep] * len(top) + col[c[keep]],
+                        minlength=n_smorfs * len(top)).reshape(n_smorfs, len(top)).astype(np.float32)
         x /= np.maximum(np.bincount(d.occ_smorf, minlength=n_smorfs), 1)[:, None]
         d._ctx[key] = x
     return d._ctx[key]
@@ -692,13 +702,25 @@ def target_genes(d):
     return d._targets
 
 
+def cpus():
+    """The number of CPUs this job may use"""
+    try:
+        return max(len(os.sched_getaffinity(0)), 1)
+    except AttributeError:
+        return os.cpu_count() or 1
+
+
 def nearest(d, engine, k, max_rank, dims, **opts):
     """For each smORF with a context vector (who, ascending): the k + 1
     smORFs with the most similar neighbourhoods (nn, -1 where fewer were
     found) and their cosine similarity (sim), in order, from the search
     engine "annoy" or "voyager". The index and the search are made once and
     shared by the rules that differ only in the categories they exclude.
-    None if the engine is not installed or there are no COG IDs."""
+    None if the engine is not installed or there are no COG IDs.
+
+    Each engine is searched again for each k: its answer for the first k + 1
+    depends on how many are asked for. Annoy searches on all CPUs (with
+    the same results as on one)."""
     x = context_vectors(d, max_rank, dims)
     if x is None:
         return None
@@ -724,10 +746,15 @@ def nearest(d, engine, k, max_rank, dims, **opts):
             index.build(opts["n_trees"], n_jobs=1)
             d._ctx[ikey] = index
         index = d._ctx[ikey]
-        for row, i in enumerate(who):
-            got, dj = index.get_nns_by_item(int(i), m, include_distances=True)
-            nn[row, :len(got)] = got
-            dist[row, :len(got)] = dj
+
+        def search(rows):  # (Annoy lets several searches run at the same time)
+            for row in rows:
+                got, dj = index.get_nns_by_item(int(who[row]), m, include_distances=True)
+                nn[row, :len(got)] = got
+                dist[row, :len(got)] = dj
+
+        with ThreadPoolExecutor(cpus()) as pool:
+            list(pool.map(search, np.array_split(np.arange(len(who)), 16 * cpus())))
         sim = 1.0 - dist * dist / 2  # angular distance -> cosine similarity
     elif engine == "voyager":
         try:
