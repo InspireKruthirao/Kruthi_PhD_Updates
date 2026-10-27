@@ -7,8 +7,8 @@ eggNOG-mapper already gives every annotated gene its KEGG annotations
 the full eggNOG lines. Before using KEGG as labels instead of COG
 categories, this reports:
 
-  1. all genes with eggNOG: the % with a COG category, KO, KEGG pathway,
-     KEGG module and BRITE
+  1. genes with eggNOG (the first SAMPLE lines; all would take hours): the %
+     with a COG category, KO, KEGG pathway, KEGG module and BRITE
   2. the neighbour genes and the target genes in smorf_neighbourhoods.sqlite:
      the same %
   3. the smORFs: how many have a label (the target gene of at least one
@@ -28,6 +28,7 @@ from collections import Counter, defaultdict
 
 NB_DIR = "/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL"
 LABELS = ("COG_category", "KEGG_ko", "KEGG_Pathway", "KEGG_Module", "BRITE")
+SAMPLE = 2_000_000
 
 
 def label_values(fields, cols):
@@ -71,13 +72,16 @@ def main(eggnog_db, nb_db):
             n = sum(c for b, c in counts.items() if b >> k & 1)
             print(f"  {name:13s} {n:>12,}  {100 * n / max(total, 1):5.1f}%")
 
-    # 1. all genes with eggNOG
-    counts = Counter(dict(db.execute("SELECT label_bits(annotation_line), COUNT(*) FROM eggnog GROUP BY 1")))
-    show("1. Genes with eggNOG (all samples)", counts, sum(counts.values()))
+    # 1. genes with eggNOG (a sample)
+    print("1. reading eggNOG genes...", flush=True)
+    counts = Counter(dict(db.execute("SELECT label_bits(annotation_line), COUNT(*) FROM "
+                                     "(SELECT annotation_line FROM eggnog LIMIT ?) GROUP BY 1", (SAMPLE,))))
+    show(f"1. Genes with eggNOG (first {SAMPLE:,})", counts, sum(counts.values()))
     print(f"  ({time.time() - t0:.0f}s)", flush=True)
 
     # 2. neighbour and target genes of the smORFs
     db.execute("ATTACH DATABASE ? AS nb", (f"file:{nb_db}?mode=ro",))
+    print("\n2. reading the neighbour and target genes of the smORFs...", flush=True)
     rows = db.execute(
         "SELECT n.is_target, label_bits(e.annotation_line), COUNT(*) FROM nb.neighbours n "
         "JOIN nb.occurrences o ON o.occ_id = n.occ_id "
@@ -88,6 +92,7 @@ def main(eggnog_db, nb_db):
     print(f"  ({time.time() - t0:.0f}s)", flush=True)
 
     # 3. smORFs: labelled if the target gene of at least one occurrence has the label
+    print("\n3. reading the target genes of the smORFs...", flush=True)
     n_smorfs = db.execute("SELECT COUNT(DISTINCT smorf_id) FROM nb.occurrences").fetchone()[0]
     has = defaultdict(set)  # label -> smORFs with it
     values = defaultdict(Counter)  # label -> value -> smORFs
