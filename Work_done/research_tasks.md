@@ -98,3 +98,19 @@ Plot accuracy against coverage for all 184 rules.
    - To do - dereplication: split TRAIN/TEST by 90% smORF cluster, and stop near-identical smORFs voting for each other in Annoy/Voyager
    - To do - run the 192 rules with KEGG Pathway/Module labels as a second check; run the eggNOG-filtered sweep
    - To do - remove the old GFF scripts in Analysis; README for the smORF neighbourhood pipeline; add the QUT project code (-P) to PBS jobs before 2 November
+
+  28/10/2026 - Supervisor meeting (Luis, Ben)
+   - Luis - Framework delivered as planned for this semester; Aim 1 can be packaged as two methods: C172 strict (high quality) and C175 broad (high coverage). Keep exploring until early 2027, then decide papers/thesis chapters and aim higher than the minimum
+   - Ben - Decide the goal: best predictor (then use machine learning, e.g. random forest on one-hot encoded neighbours) or understanding (then change one factor at a time, e.g. same strand vs not; C172 vs C166 changes two things)
+   - Ben/Luis - Annoy/Voyager not needed at 150k smORFs: do exact nearest neighbours (one matrix multiplication); use approximate search only at SPIRE scale and measure the loss
+   - Ben - Vector idea: one-hot COG letters per neighbour, closer genes weighted more; Luis: this can learn that some categories are more informative
+   - Luis - Baseline should be "always predict the most common category" (C097 26.1%, C098 25.6%), not random (C099)
+   - Luis - Write precisely how occurrences are combined and conflicts handled (e.g. 5 occurrences: 2 say K, 3 say L)
+   - Ben - Contigs from the same species are not independent evidence (strain-level copies); matters at SPIRE scale
+   - Ben - Requiring >= 6 samples throws away most data; cluster smORFs at 90% (CD-HIT clusters exist) for more coverage; scale up with COG rather than new function databases; stick with COG first, KEGG later (KEGG is more specific, not broader)
+   - Luis - Say contigs/contexts, not genomes, when that is what is meant
+   - Luis/Ben - Benchmark the rules on all proteins, not only smORFs
+   - Luis - Report each prediction with its estimated accuracy; open question: does it transfer to short-read assemblies?
+   - Hongyu wants to run it on cow microbiome data
+   - Next meeting around January 2027 (2-year mark 21 Jan 2027); second-year seminar and report; Spain visit: ask the consulate to amend the dates, aim Feb-Apr 2027
+   - To do - write the aggregation/conflict description; use C097/C098 as baseline; one-factor-at-a-time rule comparisons; exact nearest neighbours vs Annoy/Voyager; ML classifier on one-hot neighbours; rerun with smORFs clustered at 90%; rules on all proteins; make the pipeline easy for Hongyu
