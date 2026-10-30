@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Predict the COG category of every smORF from its neighbour genes with 192
+Predict the COG category of every smORF from its neighbour genes with 228
 rules, and score each rule on the smORFs whose category is known.
 
     python3 sweep_db.py smorf_neighbourhoods.sqlite           show the results
@@ -168,7 +168,7 @@ def load_db(db_path):
     d = Data(smorfs, targets, cats + NO_CALL, len(cats), occs["smorf"].to_numpy(),
              as_numpy(nb), as_numpy(nb.sort("occ", "ord", maintain_order=True)), db_path)
 
-    # gene strands, distances and COG IDs (rules C151-C192)
+    # gene strands, distances and COG IDs (rules C151-C208)
     if raw.height and len(d.nb["ent"]):
         info = (parse(raw, INFO, INFO_AS_OBJECT, INFO_TYPE).with_row_index("occ").unnest("o")
                 .explode("neighbour_info", empty_as_null=True).drop_nulls("neighbour_info")
@@ -180,7 +180,7 @@ def load_db(db_path):
                 x["cog"] = info["cog"]
                 d.info = x
     if d.info is None:
-        print("  (no gene distances in this database: rules C151-C192 predict nothing)", flush=True)
+        print("  (no gene distances in this database: rules C151-C208 predict nothing)", flush=True)
     return d
 
 
@@ -217,6 +217,42 @@ def pick(d, keys, x, n_groups):
     pct = np.zeros(n_groups)
     pct[voted] = top / np.add.reduceat(x, starts) * 100
     return pred, pct
+
+
+def margin(d, keys, x, n_groups):
+    """Winner's minus runner-up's % of the votes, from totals x at sorted
+    unique keys (group * n_cats + code)"""
+    out = np.zeros(n_groups)
+    if not len(keys):
+        return out
+    g = keys // d.n_cats
+    order = np.lexsort((-x, g))
+    g, x = g[order], x[order]
+    starts = run_starts(g)
+    has_second = np.r_[starts[1:], len(g)] > starts + 1
+    second = np.where(has_second, x[np.minimum(starts + 1, len(x) - 1)], 0.0)
+    out[g[starts]] = (x[starts] - second) / np.add.reduceat(x, starts) * 100
+    return out
+
+
+def break_ties(d, keys, x, score, pred):
+    """Where pred is UNRESOLVED: the tied category with the highest score
+    (per key), if only one has it"""
+    if not len(keys):
+        return pred
+    g = keys // d.n_cats
+    starts = run_starts(g)
+    size = np.diff(np.r_[starts, len(g)])
+    tied = np.abs(x - np.repeat(np.maximum.reduceat(x, starts), size)) < TIE_TOLERANCE
+    s = np.where(tied, score, -np.inf)
+    win = tied & (np.abs(s - np.repeat(np.maximum.reduceat(s, starts), size)) < TIE_TOLERANCE)
+    nwin = np.add.reduceat(win.astype(int), starts)
+    winner = np.maximum.reduceat(np.where(win, keys % d.n_cats, -1), starts)
+    voted = g[starts]
+    fix = (pred[voted] == d.code("UNRESOLVED")) & (nwin == 1)
+    pred = pred.copy()
+    pred[voted[fix]] = winner[fix]
+    return pred
 
 
 def select(arrays, keep, columns):
@@ -259,11 +295,13 @@ def low_confidence(d, pred, low):
 # each returns (predicted code, winner's %) per smORF
 
 def weighted_vote(d, curve="linear", n=5, exclude=(), multi="split",
-                  background=None, cutoff=None, min_occ=None):
+                  background=None, cutoff=None, min_occ=None, margin_cutoff=None, tiebreak=None):
     """Neighbours (rank <= n) vote for their categories, weighted by curve,
     over all occurrences. multi: "split", "full" or "ignore" multi-letter
     genes. cutoff: winner needs >= cutoff %. min_occ: votes from >= min_occ
-    occurrences."""
+    occurrences. margin_cutoff: winner needs >= margin_cutoff % more than
+    the runner-up. tiebreak: on a tie, the category of the closest gene
+    ("closest") or the most common category among neighbours ("common")."""
     c = d.counts(tuple(exclude))
     use = c["rank"] <= n
     if multi == "ignore":
@@ -272,9 +310,21 @@ def weighted_vote(d, curve="linear", n=5, exclude=(), multi="split",
     v = vote_table(d, WEIGHTS[curve], multi, background).take(c["vote"]) * c["n"]
     starts = run_starts(c["key"])
     n_smorfs = d.smorfs.height
-    pred, pct = pick(d, c["key"][starts], np.add.reduceat(v, starts) if len(v) else v, n_smorfs)
+    keys, totals = c["key"][starts], np.add.reduceat(v, starts) if len(v) else v
+    pred, pct = pick(d, keys, totals, n_smorfs)
+    if tiebreak == "closest":
+        x = d.voters(n, tuple(exclude), multi, ("key", "rank"))
+        closest = np.full(n_smorfs * d.n_cats, MAX_RANK + 1)
+        np.minimum.at(closest, x["key"], x["rank"])
+        pred = break_ties(d, keys, totals, -closest[keys].astype(float), pred)
+    elif tiebreak == "common":
+        near = d.nb["rank"] <= n
+        common = np.bincount(d.nb["code"][near], minlength=d.n_cats).astype(float)
+        pred = break_ties(d, keys, totals, common[keys % d.n_cats], pred)
     if cutoff:
         pred = low_confidence(d, pred, pct < cutoff - PCT_TOLERANCE)
+    if margin_cutoff:
+        pred = low_confidence(d, pred, margin(d, keys, totals, n_smorfs) < margin_cutoff - PCT_TOLERANCE)
     if min_occ:
         x = d.voters(n, tuple(exclude), multi, ("smorf", "occ"))
         few = np.bincount(x["smorf"][run_starts(x["occ"])], minlength=n_smorfs) < min_occ
@@ -449,20 +499,36 @@ def vote_where(d, gene_ok, weight, n, exclude, cutoff=None):
     return pred, pct
 
 
+def rank_weight(d, curve):
+    """Per nb entry: the weight of its rank"""
+    return np.array([0.0] + [WEIGHTS[curve][r] for r in range(1, MAX_RANK + 1)])[d.nb["rank"]]
+
+
 def operon_vote(d, max_gap=100, curve="linear", n=5, exclude=(), cutoff=None):
     """Only genes in the target gene's operon vote."""
     if d.info is None:
         return nothing(d)
-    weight = np.array([0.0] + [WEIGHTS[curve][r] for r in range(1, MAX_RANK + 1)])[d.nb["rank"]]
-    return vote_where(d, in_operon(d, max_gap), weight, n, exclude, cutoff)
+    return vote_where(d, in_operon(d, max_gap), rank_weight(d, curve), n, exclude, cutoff)
 
 
-def distance_vote(d, half=500, n=5, exclude=()):
-    """Vote halves every `half` bp from the target gene."""
+def side_vote(d, where, curve="linear", n=5, exclude=()):
+    """Only genes upstream ("up"), downstream ("down") or on the target's
+    strand at any distance ("same_strand") vote."""
+    if d.info is None:
+        return nothing(d)
+    gene_ok = {"up": d.info["side"] == 0, "down": d.info["side"] == 1,
+               "same_strand": d.info["same"] == 1}[where]
+    return vote_where(d, gene_ok, rank_weight(d, curve), n, exclude)
+
+
+def distance_vote(d, half=500, n=5, exclude=(), max_gap=None):
+    """Vote halves every `half` bp from the target gene. max_gap: only genes
+    in the target gene's operon vote."""
     if d.info is None:
         return nothing(d)
     weight = 0.5 ** (np.maximum(d.info["dist"][d.nb["ent"]], 0) / half)
-    return vote_where(d, np.ones(len(d.info["occ"]), dtype=bool), weight, n, exclude)
+    gene_ok = np.ones(len(d.info["occ"]), dtype=bool) if max_gap is None else in_operon(d, max_gap)
+    return vote_where(d, gene_ok, weight, n, exclude)
 
 
 # ------------------------------------- similar neighbourhoods (Annoy, Voyager) ----
@@ -834,6 +900,47 @@ def build_combinations(d):
                 add(group, f"the {k} smORFs with the most similar neighbourhoods "
                     f"(COG IDs within 3 genes, {name}) vote, {cname}", similar_vote, engine=engine, k=k,
                     exclude=ex)
+
+    # W. overlapping / tightly coupled genes (6)
+    for gap, text in ((-1, "overlapping"), (0, "overlapping or touching"), (20, "<= 20 bp apart")):
+        for cname, ex in cats_opts:
+            add("W. Coupled genes", f"linear weights, only neighbours in a run of same-strand genes "
+                f"{text} up to the target gene, {cname}", operon_vote, max_gap=gap, curve="linear",
+                n=5, exclude=ex)
+
+    # X. one side only (4)
+    for side in ("up", "down"):
+        for cname, ex in cats_opts:
+            add("X. One side only", f"linear weights, 5 neighbours, only {side}stream genes vote, {cname}",
+                side_vote, where=side, curve="linear", n=5, exclude=ex)
+
+    # Y. same strand, any distance (2)
+    for cname, ex in cats_opts:
+        add("Y. Same strand", f"linear weights, 5 neighbours, only genes on the target's strand vote "
+            f"(any distance), {cname}", side_vote, where="same_strand", curve="linear", n=5, exclude=ex)
+
+    # Z. operon + distance weighting (4)
+    for half in (250, 500):
+        for cname, ex in cats_opts:
+            add("Z. Operon + distance-weighted vote", f"5 neighbours, operon neighbours (<= 100 bp), "
+                f"vote halves every {half} bp from the target gene, {cname}", distance_vote,
+                half=half, n=5, exclude=ex, max_gap=100)
+
+    # AA. margin cutoff (12)
+    for curve in ("linear", "steeper"):
+        for m in (10, 20, 30):
+            for cname, ex in cats_opts:
+                add("AA. Margin cutoff", f"{curve} weights, 5 neighbours, predict only if winner has "
+                    f">= {m}% more of the vote than the runner-up, {cname}", weighted_vote,
+                    curve=curve, n=5, exclude=ex, margin_cutoff=m)
+
+    # AB. tie-breaking (8)
+    for curve in ("linear", "steeper"):
+        for tb, text in (("closest", "the closest gene's category"),
+                         ("common", "the category most common among neighbours")):
+            for cname, ex in cats_opts:
+                add("AB. Tie-breaking", f"{curve} weights, 5 neighbours, ties go to {text}, {cname}",
+                    weighted_vote, curve=curve, n=5, exclude=ex, tiebreak=tb)
     return combos
 
 
