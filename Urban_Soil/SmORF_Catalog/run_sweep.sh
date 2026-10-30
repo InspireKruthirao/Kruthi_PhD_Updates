@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs the 192 rules (Pixi_Env/sweep_db.py) on a neighbourhood database, then
+# Runs the 228 rules (Pixi_Env/sweep_db.py) on a neighbourhood database, then
 # the held-out check and cascade (Pixi_Env/cascade.py). Run inside tmux:
 #     bash run_sweep.sh                                     smorf_neighbourhoods.sqlite
 #     bash run_sweep.sh smorf_neighbourhoods_q50_s50_p30_e1e-10.sqlite   a filtered copy
