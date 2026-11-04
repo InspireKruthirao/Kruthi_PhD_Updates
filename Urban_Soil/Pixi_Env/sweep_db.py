@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Predict the COG category of every smORF from its neighbour genes with 228
+Predict the COG category of every smORF from its neighbour genes with 236
 rules, and score each rule on the smORFs whose category is known.
 
     python3 sweep_db.py smorf_neighbourhoods.sqlite           show the results
@@ -16,6 +16,7 @@ own COG letters (target_categories). C027/C028 are the original method.
 To add a rule, add it at the end of build_combinations().
 """
 
+import contextlib
 import csv
 import os
 import random
@@ -564,6 +565,55 @@ def context_vectors(d, max_rank=3, dims=512):
     return d.cache[key]
 
 
+def letter_vectors(d, curve="linear", n=5):
+    """smORF x (side, COG letter): the letters of the n closest genes on each
+    side, closer genes weighted more (curve), multi-letter genes split,
+    averaged over occurrences. Upstream letters first, then downstream."""
+    key = ("letters", curve, n)
+    if key not in d.cache:
+        nb = d.nb
+        use = nb["rank"] <= n
+        side = (d.info["side"][nb["ent"][use]].astype(np.int64) if d.info is not None
+                else np.zeros(use.sum(), dtype=np.int64))
+        w = rank_weight(d, curve)[use] / nb["ncat"][use]
+        n_smorfs, width = d.smorfs.height, 2 * d.n_cats
+        x = np.bincount(nb["smorf"][use].astype(np.int64) * width + side * d.n_cats + nb["code"][use],
+                        weights=w, minlength=n_smorfs * width).reshape(n_smorfs, width)
+        x /= np.maximum(np.bincount(d.occ_smorf, minlength=n_smorfs), 1)[:, None]
+        d.cache[key] = x.astype(np.float32)
+    return d.cache[key]
+
+
+def exact_nearest(x, who, m, block=1024):
+    """For each row of x[who]: its m most cosine-similar rows (as indices
+    into x, most similar first) and their similarity, by brute force. Ties
+    go to the lower index (a tiny offset per column: many smORFs have
+    identical vectors, and np.argpartition is very slow with many ties)."""
+    xs = x[who] / np.maximum(np.linalg.norm(x[who], axis=1, keepdims=True), 1e-12)
+    m = min(m, len(who))
+    nn = np.empty((len(who), m), dtype=np.int64)
+    sim = np.empty((len(who), m))
+    offset = np.arange(len(who)) * 1e-13  # < 2e-8, far below float32 precision of the similarities
+
+    def one(b):
+        s = (xs[b:b + block] @ xs.T).astype(np.float64) - offset
+        top = np.argpartition(-s, m - 1, axis=1)[:, :m]
+        ts = np.take_along_axis(s, top, axis=1)
+        order = np.argsort(-ts, axis=1, kind="stable")
+        top = np.take_along_axis(top, order, axis=1)
+        nn[b:b + block] = who[top]
+        sim[b:b + block] = np.take_along_axis(ts, order, axis=1) + offset[top]
+
+    try:
+        from threadpoolctl import threadpool_limits
+        one_blas_thread = threadpool_limits(1)  # the blocks run in parallel instead
+    except ImportError:
+        one_blas_thread = contextlib.nullcontext()
+    with one_blas_thread, ThreadPoolExecutor(min(cpus(), 16)) as pool:
+        list(pool.map(one, range(0, len(who), block)))
+    return nn, sim
+
+
 def target_genes(d):
     """(smorf, gene) pairs of target genes (sample|Original_ID), sorted;
     None if the database has no neighbours table."""
@@ -617,13 +667,16 @@ def cpus():
         return os.cpu_count() or 1
 
 
-def nearest(d, engine, k, max_rank, dims, **opts):
+def nearest(d, engine, k, max_rank, dims, vectors="cog_ids", **opts):
     """For each smORF with a context vector (who): its k + 1 most similar
-    smORFs (nn, -1 if none) and their cosine similarity (sim). Cached."""
-    x = context_vectors(d, max_rank, dims)
+    smORFs (nn, -1 if none) and their cosine similarity (sim). engine:
+    "annoy", "voyager" (approximate) or "exact". vectors: "cog_ids" (share
+    of occurrences with each COG ID within max_rank) or "letters"
+    (letter_vectors). Cached."""
+    x = context_vectors(d, max_rank, dims) if vectors == "cog_ids" else letter_vectors(d)
     if x is None:
         return None
-    key = (engine, k, max_rank, dims) + tuple(sorted(opts.items()))
+    key = (engine, k, max_rank, dims, vectors) + tuple(sorted(opts.items()))
     if key in d.cache:
         return d.cache[key]
     who = np.flatnonzero(x.any(axis=1))
@@ -636,7 +689,7 @@ def nearest(d, engine, k, max_rank, dims, **opts):
         except ImportError:
             print("  (python-annoy not installed: rules C185-C188 predict nothing)", flush=True)
             return None
-        ikey = ("annoy index", max_rank, dims, opts["n_trees"])
+        ikey = ("annoy index", max_rank, dims, vectors, opts["n_trees"])
         if ikey not in d.cache:
             index = AnnoyIndex(x.shape[1], "angular")
             index.set_seed(0)
@@ -661,7 +714,7 @@ def nearest(d, engine, k, max_rank, dims, **opts):
         except ImportError:
             print("  (voyager not installed: rules C189-C192 predict nothing)", flush=True)
             return None
-        ikey = ("voyager index", max_rank, dims, opts["M"], opts["ef_construction"])
+        ikey = ("voyager index", max_rank, dims, vectors, opts["M"], opts["ef_construction"])
         if ikey not in d.cache and len(who):
             index = Index(Space.Cosine, num_dimensions=x.shape[1], M=opts["M"],
                           ef_construction=opts["ef_construction"], random_seed=1, max_elements=len(who))
@@ -673,18 +726,26 @@ def nearest(d, engine, k, max_rank, dims, **opts):
             nn[:, :m] = got.astype(np.int64)
             dist[:, :m] = dj.astype(np.float64)
         sim = 1.0 - dist  # cosine distance -> cosine
+    elif engine == "exact":
+        ikey = ("exact search", max_rank, dims, vectors)  # once for the largest k used (25), then cut
+        if ikey not in d.cache or d.cache[ikey][0].shape[1] < m:
+            d.cache[ikey] = exact_nearest(x, who, max(m, 26)) if len(who) else (nn, dist)
+        got, s = d.cache[ikey]
+        w = min(m, got.shape[1])
+        nn[:, :w], dist[:, :w] = got[:, :w], s[:, :w]
+        sim = dist  # already cosine
     else:
         raise ValueError(f"unknown search engine: {engine}")
     d.cache[key] = (who, nn, np.where(nn >= 0, sim, 0.0))
     return d.cache[key]
 
 
-def similar_vote(d, engine="annoy", k=10, max_rank=3, dims=512, exclude=(), **opts):
+def similar_vote(d, engine="annoy", k=10, max_rank=3, dims=512, exclude=(), vectors="cog_ids", **opts):
     """The k smORFs with the most similar neighbourhoods vote for their known
     categories, weighted by similarity. Not the smORF itself, not smORFs on
     the same target gene, not smORFs with nothing in common."""
     defaults = {"annoy": {"n_trees": 20}, "voyager": {"M": 12, "ef_construction": 200, "query_ef": 100}}
-    found = nearest(d, engine, k, max_rank, dims, **{**defaults.get(engine, {}), **opts})
+    found = nearest(d, engine, k, max_rank, dims, vectors, **{**defaults.get(engine, {}), **opts})
     if found is None:
         return nothing(d)
     who, nn, sim = found
@@ -941,6 +1002,20 @@ def build_combinations(d):
             for cname, ex in cats_opts:
                 add("AB. Tie-breaking", f"{curve} weights, 5 neighbours, ties go to {text}, {cname}",
                     weighted_vote, curve=curve, n=5, exclude=ex, tiebreak=tb)
+
+    # AC. exact nearest neighbours on the Annoy/Voyager vectors (4)
+    for k in (10, 25):
+        for cname, ex in cats_opts:
+            add("AC. Exact nearest neighbours", f"the {k} smORFs with the most similar neighbourhoods "
+                f"(COG IDs within 3 genes, exact search) vote, {cname}", similar_vote, engine="exact",
+                k=k, exclude=ex)
+
+    # AD. exact nearest neighbours on COG letters, closer genes weighted more (4)
+    for k in (10, 25):
+        for cname, ex in cats_opts:
+            add("AD. Similar letter profiles", f"the {k} smORFs with the most similar COG letters "
+                f"(5 genes per side, linear weights, up/downstream kept apart, exact search) vote, "
+                f"{cname}", similar_vote, engine="exact", k=k, exclude=ex, vectors="letters")
     return combos
 
 
