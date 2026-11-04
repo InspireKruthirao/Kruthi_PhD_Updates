@@ -1,0 +1,28 @@
+#!/bin/bash -l
+#PBS -N US_feedback_tests
+#PBS -q cpu_batch_exec
+#PBS -l select=1:ncpus=16:mem=160gb
+#PBS -l walltime=06:00:00
+#PBS -j oe
+#PBS -o /work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL/sweep_results_236rules/job.log
+#PBS -P DFAZCB7230
+#
+# Supervisor meeting 28 October: the 236 rules (sweep_db.py, now with exact
+# nearest neighbours and letter profiles), the cascade, then feedback_tests.py
+# (baselines, exact vs Annoy/Voyager, random forest, one factor at a time).
+#     qsub run_feedback_tests.pbs
+# Set CLUSTERS to a CD-HIT .clstr file to also split TRAIN/TEST by 90% cluster.
+
+set -eo pipefail
+PIXI_ENV=/mnt/hpccs01/home/n12228516/Kruthi_PhD_Updates/Urban_Soil/Pixi_Env
+NB=/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL
+DB=$NB/smorf_neighbourhoods.sqlite
+RESULTS=$NB/sweep_results_236rules
+CLUSTERS=${CLUSTERS:-}
+PY="pixi run --manifest-path $PIXI_ENV/pixi.toml python"
+
+mkdir -p "$RESULTS"
+cd "$RESULTS"
+$PY "$PIXI_ENV/sweep_db.py" "$DB" --save 2>&1 | grep -v "^ WARN" | tee sweep.log
+$PY "$PIXI_ENV/cascade.py" . 2>&1 | grep -v "^ WARN" | tee cascade.log
+$PY "$PIXI_ENV/feedback_tests.py" "$DB" . ${CLUSTERS:+--clusters "$CLUSTERS"} 2>&1 | grep -v "^ WARN" | tee feedback.log
