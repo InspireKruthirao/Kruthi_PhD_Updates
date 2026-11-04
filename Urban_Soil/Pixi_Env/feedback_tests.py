@@ -282,7 +282,11 @@ def machine_learning(d, train, test, ks, clusters, folder):
     x, NAMES = ml_features(d)
     has = x[:, :-1].any(axis=1)
     say(f"  {x.shape[1]} features; {has.sum():,} of {d.smorfs.height:,} smORFs have at least one")
-    say("  (cascade.py on the same TEST half: 56.1% accuracy at 97.8% coverage, all categories)")
+    cascade = folder / "cascade_results.tsv"
+    if cascade.exists():  # the cascade's last step, for comparison
+        steps = [l.split("\t") for l in cascade.read_text().splitlines() if l[:1].isdigit()]
+        if steps:
+            say(f"  (cascade.py on the same TEST half: {steps[-1][5]}% accuracy at {steps[-1][4]}% coverage)")
 
     def write(pred, conf):
         labels = pl.Series(d.labels)

@@ -1,0 +1,304 @@
+Loaded 156,109 smORFs in 8s
+annotated smORFs: TRAIN 38,055, TEST 38,056 (random split, seed 0, as cascade.py)
+
+1. BASELINES on TEST (always the most common category)
+rule	coverage %	accuracy %	description
+C097	100.0	26.1	always predict 'S' (most common category), all categories
+C098	76.8	25.9	always predict 'J' (most common category), excluding S and R
+
+4. ONE FACTOR AT A TIME: rule pairs that differ in exactly one setting
+   (accuracy and coverage on all annotated smORFs, from combinations_results.csv)
+  592 pairs (all in one_factor_comparisons.tsv). Summary, median change from A to B:
+method	setting	from -> to	pairs	accuracy change	coverage change
+consensus	curve	linear -> steeper	4	+2.1	-0.2
+consensus	exclude	none -> S,R	4	+4.4	-22.0
+consensus	n	3 -> 5	4	-0.3	+1.2
+conserved	exclude	none -> S,R	12	+2.1	-2.6
+conserved	min_frac	0.5 -> 0.7	8	+0.2	-1.0
+conserved	min_frac	None -> 0.5	8	+0.2	-0.5
+conserved	min_frac	None -> 0.7	8	+0.4	-1.5
+conserved	n	1 -> 2	6	-2.0	-13.3
+conserved	n	1 -> 3	6	-0.6	-25.4
+conserved	n	1 -> 5	6	+3.1	-39.4
+conserved	n	2 -> 3	6	+1.5	-12.1
+conserved	n	2 -> 5	6	+5.1	-26.1
+conserved	n	3 -> 5	6	+3.6	-13.9
+conserved_vote	exclude	none -> S,R	2	+4.2	-22.9
+distance_vote	exclude	none -> S,R	5	+5.0	-23.5
+distance_vote	half	250 -> 1000	2	-1.6	+0.5
+distance_vote	half	250 -> 500	4	-0.1	+0.2
+distance_vote	half	500 -> 1000	2	-1.4	+0.2
+distance_vote	max_gap	None -> 100	4	+7.1	-22.6
+enriched	exclude	none -> S,R	2	+5.6	-23.4
+enriched	n	3 -> 5	2	-6.0	+0.2
+majority	exclude	none -> S,R	5	-2.3	+2.5
+majority	k	3 -> 4	2	+13.7	-15.7
+operon_vote	curve	flat -> linear	6	-0.2	+2.8
+operon_vote	cutoff	50 -> 70	2	+4.5	-15.1
+operon_vote	cutoff	None -> 50	2	+3.1	-10.6
+operon_vote	cutoff	None -> 70	2	+7.6	-25.6
+operon_vote	exclude	none -> S,R	11	+7.9	-15.4
+operon_vote	max_gap	-1 -> 0	2	+0.2	+0.8
+operon_vote	max_gap	-1 -> 100	2	-3.9	+42.2
+operon_vote	max_gap	-1 -> 20	2	+0.2	+20.3
+operon_vote	max_gap	-1 -> 200	2	-6.8	+50.0
+operon_vote	max_gap	-1 -> 50	2	-1.2	+31.6
+operon_vote	max_gap	0 -> 100	2	-4.1	+41.5
+operon_vote	max_gap	0 -> 20	2	+0.0	+19.5
+operon_vote	max_gap	0 -> 200	2	-7.1	+49.3
+operon_vote	max_gap	0 -> 50	2	-1.4	+30.9
+operon_vote	max_gap	100 -> 200	4	-3.3	+7.5
+operon_vote	max_gap	20 -> 100	2	-4.1	+21.9
+operon_vote	max_gap	20 -> 200	2	-7.1	+29.8
+operon_vote	max_gap	20 -> 50	2	-1.5	+11.4
+operon_vote	max_gap	50 -> 100	4	-2.8	+10.1
+operon_vote	max_gap	50 -> 200	4	-6.2	+17.5
+sandwiched	exclude	none -> S,R	9	+14.4	-3.0
+sandwiched	max_dist	None -> 100	8	+3.2	-5.4
+sandwiched	min_frac	None -> 0.5	2	+4.3	-5.1
+sandwiched	min_genomes	1 -> 2	2	+2.8	-2.6
+sandwiched	same_strand	False -> True	8	+3.8	-1.1
+side_vote	exclude	none -> S,R	3	+3.9	-23.4
+side_vote	where	down -> same_strand	2	+4.0	-1.2
+side_vote	where	up -> down	2	+4.4	+0.2
+side_vote	where	up -> same_strand	2	+8.4	-1.1
+similar_vote	engine	annoy -> exact	4	+4.2	-1.0
+similar_vote	engine	annoy -> voyager	4	-1.5	-5.7
+similar_vote	engine	voyager -> exact	4	+5.8	+4.5
+similar_vote	exclude	none -> S,R	8	+3.5	-23.8
+similar_vote	k	10 -> 25	8	-3.0	+4.2
+similar_vote	vectors	cog_ids -> letters	4	-1.3	+5.8
+weighted_vote	background	None -> divided by how common	6	-8.1	+2.1
+weighted_vote	curve	flat -> very_steep	8	+4.0	+3.8
+weighted_vote	curve	linear -> flat	8	-1.4	-4.2
+weighted_vote	curve	linear -> steeper	32	+0.7	+2.6
+weighted_vote	curve	linear -> very_steep	8	+2.2	-0.5
+weighted_vote	curve	steeper -> flat	8	-3.4	-3.5
+weighted_vote	curve	steeper -> very_steep	8	+0.5	+0.2
+weighted_vote	cutoff	30 -> 40	4	+6.8	-23.2
+weighted_vote	cutoff	30 -> 50	4	+16.2	-41.4
+weighted_vote	cutoff	30 -> 60	4	+26.3	-52.8
+weighted_vote	cutoff	30 -> 70	4	+34.6	-60.2
+weighted_vote	cutoff	40 -> 50	4	+9.4	-18.4
+weighted_vote	cutoff	40 -> 60	4	+19.6	-30.6
+weighted_vote	cutoff	40 -> 70	4	+27.9	-38.0
+weighted_vote	cutoff	50 -> 60	6	+9.2	-12.9
+weighted_vote	cutoff	50 -> 70	6	+18.2	-21.9
+weighted_vote	cutoff	50 -> 80	2	+16.1	-33.8
+weighted_vote	cutoff	60 -> 70	6	+8.4	-8.6
+weighted_vote	cutoff	60 -> 80	2	+12.3	-19.3
+weighted_vote	cutoff	70 -> 80	2	+7.5	-9.4
+weighted_vote	cutoff	None -> 30	4	+2.5	-10.8
+weighted_vote	cutoff	None -> 40	4	+9.3	-34.0
+weighted_vote	cutoff	None -> 50	6	+14.4	-43.5
+weighted_vote	cutoff	None -> 60	6	+23.6	-56.8
+weighted_vote	cutoff	None -> 70	6	+32.7	-65.2
+weighted_vote	cutoff	None -> 80	2	+22.6	-64.3
+weighted_vote	exclude	S -> R	2	-4.0	+23.0
+weighted_vote	exclude	S,R -> R	2	-4.0	+23.0
+weighted_vote	exclude	S,R -> S	2	+0.0	+0.0
+weighted_vote	exclude	none -> R	2	+0.0	+0.0
+weighted_vote	exclude	none -> S	2	+4.0	-23.0
+weighted_vote	exclude	none -> S,R	51	+3.8	-22.1
+weighted_vote	margin_cutoff	10 -> 20	4	+7.8	-18.3
+weighted_vote	margin_cutoff	10 -> 30	4	+15.7	-29.6
+weighted_vote	margin_cutoff	20 -> 30	4	+8.0	-11.8
+weighted_vote	margin_cutoff	None -> 10	4	+7.2	-28.7
+weighted_vote	margin_cutoff	None -> 20	4	+15.0	-47.0
+weighted_vote	margin_cutoff	None -> 30	4	+22.9	-58.4
+weighted_vote	min_occ	2 -> 3	2	+0.0	+0.0
+weighted_vote	min_occ	2 -> 5	2	+0.1	-0.5
+weighted_vote	min_occ	3 -> 5	2	+0.1	-0.5
+weighted_vote	min_occ	None -> 2	2	+0.0	+0.0
+weighted_vote	min_occ	None -> 3	2	+0.0	+0.0
+weighted_vote	min_occ	None -> 5	2	+0.1	-0.5
+weighted_vote	multi	full -> ignore	2	-1.7	+1.1
+weighted_vote	multi	split -> full	2	+0.5	-0.9
+weighted_vote	multi	split -> ignore	2	-1.2	+0.1
+weighted_vote	n	1 -> 2	2	-4.6	+14.1
+weighted_vote	n	1 -> 3	2	-5.7	+16.6
+weighted_vote	n	1 -> 4	2	-6.2	+17.2
+weighted_vote	n	1 -> 5	2	-6.4	+17.6
+weighted_vote	n	2 -> 10	2	-0.8	+5.1
+weighted_vote	n	2 -> 3	8	-0.6	+3.0
+weighted_vote	n	2 -> 4	8	-0.9	+4.1
+weighted_vote	n	2 -> 5	8	-1.1	+4.7
+weighted_vote	n	2 -> 7	2	-0.8	+5.1
+weighted_vote	n	3 -> 10	2	-0.4	+2.0
+weighted_vote	n	3 -> 4	8	-0.3	+1.1
+weighted_vote	n	3 -> 5	10	-0.6	+1.5
+weighted_vote	n	3 -> 7	2	-0.4	+2.0
+weighted_vote	n	4 -> 10	2	-0.2	+0.8
+weighted_vote	n	4 -> 5	8	-0.2	+0.6
+weighted_vote	n	4 -> 7	2	-0.2	+0.8
+weighted_vote	n	5 -> 10	2	+0.0	+0.0
+weighted_vote	n	5 -> 7	2	+0.0	+0.0
+weighted_vote	n	7 -> 10	2	+0.0	+0.0
+weighted_vote	tiebreak	None -> closest	4	-0.1	+0.3
+weighted_vote	tiebreak	None -> common	4	-0.3	+1.9
+weighted_vote	tiebreak	closest -> common	4	-0.2	+1.5
+  (setting 'exclude': the two rules are scored on different smORFs, so compare with care)
+
+2. EXACT AGAINST APPROXIMATE NEAREST NEIGHBOURS (COG IDs within 3 genes, 512 dims)
+  exact search, k = 10: 51s for 151,187 smORFs
+  annoy    k = 10: finds 53.5% of the exact neighbours; 65.8% of its neighbours are as similar as the exact k-th (ties count) (39s)
+  voyager  k = 10: finds 55.7% of the exact neighbours; 78.9% of its neighbours are as similar as the exact k-th (ties count) (49s)
+  exact search, k = 25: 0s for 151,187 smORFs
+  annoy    k = 25: finds 59.1% of the exact neighbours; 71.8% of its neighbours are as similar as the exact k-th (ties count) (6s)
+  voyager  k = 25: finds 60.1% of the exact neighbours; 81.5% of its neighbours are as similar as the exact k-th (ties count) (3s)
+
+  TEST accuracy of the similar-neighbourhood rules
+rule	coverage %	accuracy %	description
+C185	87.7	57.9	the 10 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, Annoy) vote, all categories
+C186	64.3	61.7	the 10 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, Annoy) vote, excluding S and R
+C187	91.6	57.3	the 25 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, Annoy) vote, all categories
+C188	68.6	59.4	the 25 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, Annoy) vote, excluding S and R
+C189	80.1	58.2	the 10 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, Voyager) vote, all categories
+C190	55.5	63.2	the 10 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, Voyager) vote, excluding S and R
+C191	90.8	53.1	the 25 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, Voyager) vote, all categories
+C192	64.9	56.3	the 25 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, Voyager) vote, excluding S and R
+C229	86.6	62.8	the 10 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, exact search) vote, all categories
+C230	63.4	66.4	the 10 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, exact search) vote, excluding S and R
+C231	91.1	60.3	the 25 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, exact search) vote, all categories
+C232	67.4	63.1	the 25 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, exact search) vote, excluding S and R
+C233	94.6	61.4	the 10 smORFs with the most similar COG letters (5 genes per side, linear weights, up/downstream kept apart, exact search) vote, all categories
+C234	69.3	65.3	the 10 smORFs with the most similar COG letters (5 genes per side, linear weights, up/downstream kept apart, exact search) vote, excluding S and R
+C235	96.7	58.9	the 25 smORFs with the most similar COG letters (5 genes per side, linear weights, up/downstream kept apart, exact search) vote, all categories
+C236	73.1	61.7	the 25 smORFs with the most similar COG letters (5 genes per side, linear weights, up/downstream kept apart, exact search) vote, excluding S and R
+
+3. MACHINE LEARNING on one-hot COG letters per neighbour position (TRAIN -> TEST)
+  261 features; 155,942 of 156,109 smORFs have at least one
+  (cascade.py on the same TEST half: 60.8% accuracy at 99.9% coverage)
+
+  random split (as cascade.py): TRAIN 38,055, TEST 38,056 annotated smORFs
+
+  random forest, all categories (5s)
+  predict only if confidence >=	coverage %	accuracy %
+  0.0	100.0	60.0
+  0.3	71.6	70.7
+  0.4	43.0	85.4
+  0.5	26.8	93.8
+  0.6	18.7	98.2
+  0.7	14.1	99.4
+  0.8	10.3	99.8
+  0.9	6.7	100.0
+  confidence bin	TEST smORFs	accuracy %   (estimated accuracy per prediction)
+  0.0-0.2	537	24.6
+  0.2-0.3	10,268	33.3
+  0.3-0.4	10,894	48.8
+  0.4-0.5	6,170	71.5
+  0.5-0.6	3,079	83.7
+  0.6-0.7	1,722	94.5
+  0.7-0.8	1,446	98.2
+  0.8-0.9	1,382	99.6
+  0.9-1.0	2,554	100.0
+  most important features: down1_J (0.032), up1_J (0.023), up1_log_distance (0.018), down1_log_distance (0.017), up2_log_distance (0.016), down1_O (0.016), down2_log_distance (0.016), up3_log_distance (0.015), down3_log_distance (0.015), up4_log_distance (0.014), down5_log_distance (0.014), down4_log_distance (0.014), down2_J (0.014), up5_log_distance (0.014), down1_same_strand (0.014)
+
+  logistic regression, all categories (3s)
+  predict only if confidence >=	coverage %	accuracy %
+  0.0	100.0	51.6
+  0.3	83.7	56.0
+  0.4	55.8	65.5
+  0.5	35.9	75.0
+  0.6	24.8	82.6
+  0.7	18.4	88.5
+  0.8	14.0	93.4
+  0.9	9.5	96.2
+  confidence bin	TEST smORFs	accuracy %   (estimated accuracy per prediction)
+  0.0-0.2	272	19.5
+  0.2-0.3	5,933	29.8
+  0.3-0.4	10,604	36.8
+  0.4-0.5	7,571	48.4
+  0.5-0.6	4,244	58.2
+  0.6-0.7	2,416	65.3
+  0.7-0.8	1,689	73.1
+  0.8-0.9	1,711	87.5
+  0.9-1.0	3,612	96.2
+
+  random forest, excluding S and R (4s)
+  predict only if confidence >=	coverage %	accuracy %
+  0.0	76.8	64.5
+  0.3	45.2	83.6
+  0.4	33.6	91.5
+  0.5	25.1	95.5
+  0.6	19.8	97.9
+  0.7	15.5	99.0
+  0.8	11.7	99.7
+  0.9	7.8	99.9
+  confidence bin	TEST smORFs	accuracy %   (estimated accuracy per prediction)
+  0.0-0.2	4,007	26.4
+  0.2-0.3	8,018	42.4
+  0.3-0.4	4,406	60.9
+  0.4-0.5	3,217	79.5
+  0.5-0.6	2,032	86.5
+  0.6-0.7	1,623	94.0
+  0.7-0.8	1,457	96.9
+  0.8-0.9	1,467	99.3
+  0.9-1.0	2,981	99.9
+
+  logistic regression, excluding S and R (2s)
+  predict only if confidence >=	coverage %	accuracy %
+  0.0	76.8	55.7
+  0.3	60.9	63.3
+  0.4	45.9	72.2
+  0.5	34.8	79.7
+  0.6	26.7	85.3
+  0.7	21.4	89.3
+  0.8	16.7	93.4
+  0.9	11.8	96.6
+  confidence bin	TEST smORFs	accuracy %   (estimated accuracy per prediction)
+  0.0-0.2	928	20.3
+  0.2-0.3	5,108	27.8
+  0.3-0.4	5,719	36.0
+  0.4-0.5	4,196	48.6
+  0.5-0.6	3,086	61.3
+  0.6-0.7	2,027	69.1
+  0.7-0.8	1,773	74.8
+  0.8-0.9	1,897	85.7
+  0.9-1.0	4,474	96.6
+  90% clusters: 76,111 of 76,111 annotated smORFs found, 52,413 clusters
+
+  split by 90% cluster: TRAIN 38,055, TEST 38,056 annotated smORFs
+
+  random forest, all categories (5s)
+  predict only if confidence >=	coverage %	accuracy %
+  0.0	100.0	57.0
+  0.3	70.5	67.6
+  0.4	40.6	82.9
+  0.5	25.0	93.0
+  0.6	17.8	97.8
+  0.7	13.7	98.9
+  0.8	10.2	99.4
+  0.9	6.7	99.8
+  confidence bin	TEST smORFs	accuracy %   (estimated accuracy per prediction)
+  0.0-0.2	542	21.8
+  0.2-0.3	10,701	32.1
+  0.3-0.4	11,361	46.8
+  0.4-0.5	5,918	66.6
+  0.5-0.6	2,747	81.1
+  0.6-0.7	1,586	94.1
+  0.7-0.8	1,305	97.5
+  0.8-0.9	1,351	98.6
+  0.9-1.0	2,544	99.8
+  most important features: down1_J (0.031), up1_J (0.022), down1_O (0.018), up1_log_distance (0.017), down1_log_distance (0.017), up2_log_distance (0.016), down2_log_distance (0.015), up3_log_distance (0.015), down1_C (0.014), down3_log_distance (0.014), down2_J (0.014), up4_log_distance (0.014), down1_same_strand (0.014), down4_log_distance (0.014), down5_log_distance (0.013)
+
+  random forest, excluding S and R (4s)
+  predict only if confidence >=	coverage %	accuracy %
+  0.0	76.6	61.9
+  0.3	42.3	82.6
+  0.4	31.1	90.8
+  0.5	24.0	94.8
+  0.6	19.3	97.2
+  0.7	15.2	98.7
+  0.8	11.5	99.4
+  0.9	7.7	99.8
+  confidence bin	TEST smORFs	accuracy %   (estimated accuracy per prediction)
+  0.0-0.2	4,564	27.6
+  0.2-0.3	8,482	40.9
+  0.3-0.4	4,278	59.9
+  0.4-0.5	2,707	77.1
+  0.5-0.6	1,793	85.2
+  0.6-0.7	1,570	91.8
+  0.7-0.8	1,393	96.6
+  0.8-0.9	1,451	98.4
+  0.9-1.0	2,922	99.8
