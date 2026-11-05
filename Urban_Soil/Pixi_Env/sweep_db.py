@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Predict the COG category of every smORF from its neighbour genes with 236
+Predict the COG category of every smORF from its neighbour genes with 244
 rules, and score each rule on the smORFs whose category is known.
 
     python3 sweep_db.py smorf_neighbourhoods.sqlite           show the results
@@ -778,6 +778,125 @@ def similar_vote(d, engine="annoy", k=10, max_rank=3, dims=512, exclude=(), vect
     return resolve(d, keys, w, d.smorfs.height)
 
 
+# ------------------------------------------------------- random forest ----
+
+FOREST_POSITIONS = 5  # genes per side used as features
+FOREST_SEED = 0       # also the seed of the TRAIN/TEST halves in cascade.py
+
+
+def ml_features(d, cats=None, by="smorf", occurrences=True):
+    """Features for the random forest. Rows: smORFs (by="smorf", averaged
+    over their occurrences) or occurrences (by="occ"). For each side and
+    position 1-5: the gene's COG letters (one-hot, in the order of cats,
+    multi-letter genes split), whether it is on the target's strand, its log
+    distance and whether it overlaps the gene before it; plus the log number
+    of occurrences (occurrences=True, by="smorf" only)."""
+    cats = list(cats or d.labels[:d.n_cats])
+    nb = d.nb
+    n_slot, nc = 2 * FOREST_POSITIONS, len(cats)
+    to_cat = np.array([cats.index(c) for c in d.labels[:d.n_cats]])
+    n_rows = d.smorfs.height if by == "smorf" else len(d.occ_smorf)
+    use = nb["rank"] <= FOREST_POSITIONS
+    side = (d.info["side"][nb["ent"]].astype(np.int64) if d.info is not None
+            else np.zeros(len(nb["ent"]), dtype=np.int64))
+    key = nb[by].astype(np.int64) * n_slot + side * FOREST_POSITIONS + nb["rank"].astype(np.int64) - 1
+    feats = [np.bincount(key[use] * nc + to_cat[nb["code"][use]], weights=1 / nb["ncat"][use],
+                         minlength=n_rows * n_slot * nc).reshape(n_rows, n_slot * nc)]
+    if d.info is not None:
+        first = run_starts(nb["ent"])
+        first = first[use[first]]  # one entry per gene
+        gene = nb["ent"][first]
+        for value in (d.info["same"][gene].astype(float), np.log1p(np.maximum(d.info["dist"][gene], 0)),
+                      (d.info["gap"][gene] < 0).astype(float)):
+            feats.append(np.bincount(key[first], weights=value, minlength=n_rows * n_slot).reshape(n_rows, n_slot))
+    x = np.hstack(feats)
+    if by == "smorf":
+        n_occ = np.maximum(np.bincount(d.occ_smorf, minlength=n_rows), 1)
+        x /= n_occ[:, None]
+        if occurrences:
+            x = np.hstack([x, np.log(n_occ)[:, None]])
+    return x.astype(np.float32)
+
+
+def feature_names(d, cats=None, occurrences=True):
+    cats = list(cats or d.labels[:d.n_cats])
+    slots = [f"{'up' if s < FOREST_POSITIONS else 'down'}{s % FOREST_POSITIONS + 1}"
+             for s in range(2 * FOREST_POSITIONS)]
+    names = [f"{s}_{c}" for s in slots for c in cats]
+    if d.info is not None:
+        names += [f"{s}_{f}" for f in ("same_strand", "log_distance", "overlaps") for s in slots]
+    return names + (["log_occurrences"] if occurrences else [])
+
+
+def known_matrix(d, exclude=(), cats=None):
+    """smORF x category (cats, default d's): is it a known category, not excluded?"""
+    cats = list(cats or d.labels[:d.n_cats])
+    t = d.targets.filter(~pl.col("cat").is_in(list(exclude)))
+    k = np.zeros((d.smorfs.height, len(cats)), dtype=bool)
+    k[t["smorf"].to_numpy(), [cats.index(c) for c in t["cat"].to_list()]] = True
+    return k
+
+
+def halves(d):
+    """The TRAIN and TEST halves of the annotated smORFs, exactly as cascade.py"""
+    annotated = [int(i) for i in np.flatnonzero(d.smorfs["annotated"].to_numpy())]
+    random.Random(FOREST_SEED).shuffle(annotated)
+    half = len(annotated) // 2
+    return np.array(sorted(annotated[:half]), dtype=np.int64), np.array(sorted(annotated[half:]), dtype=np.int64)
+
+
+def fit_forest(x, k, rows):
+    """Random forest trained on rows with features and a known category (one
+    training row per known category, weight 1 / number of categories)"""
+    from sklearn.ensemble import RandomForestClassifier
+    rows = rows[k[rows].any(axis=1) & x[rows].any(axis=1)]
+    r, c = np.nonzero(k[rows])
+    model = RandomForestClassifier(n_estimators=300, min_samples_leaf=3, n_jobs=cpus(), random_state=FOREST_SEED)
+    model.fit(x[rows[r]], c, sample_weight=1.0 / k[rows].sum(axis=1)[r])
+    return model
+
+
+def forest_probabilities(model, x, n_cats, rows=None):
+    """rows (default all) x categories; 0 for rows without features"""
+    rows = np.arange(len(x)) if rows is None else rows
+    p = np.zeros((len(x), n_cats))
+    go = rows[x[rows].any(axis=1)]
+    for b in range(0, len(go), 200_000):
+        g = go[b:b + 200_000]
+        p[np.ix_(g, model.classes_)] = model.predict_proba(x[g])
+    return p
+
+
+def random_forest(d, exclude=(), cutoff=None):
+    """Random forest on ml_features. Each annotated smORF is predicted by a
+    model trained on the OTHER half (the TRAIN/TEST halves of cascade.py), so
+    its accuracy is not inflated; smORFs without a known category by a model
+    trained on all annotated smORFs. Winner's % = the forest's confidence.
+    cutoff: predict only if the confidence is >= cutoff %."""
+    key = ("forest", tuple(exclude))
+    if key not in d.cache:
+        try:
+            import sklearn  # noqa: F401
+        except ImportError:
+            print("  (scikit-learn not installed: the random forest rules predict nothing)", flush=True)
+            return nothing(d)
+        x = ml_features(d)
+        k = known_matrix(d, exclude)
+        a, b = halves(d)
+        rest = np.flatnonzero(~d.smorfs["annotated"].to_numpy())
+        prob = np.zeros((d.smorfs.height, d.n_cats))
+        for train, predict in ((a, b), (b, a), (np.r_[a, b], rest)):
+            if len(train) and len(predict):
+                prob += forest_probabilities(fit_forest(x, k, train), x, d.n_cats, predict)
+        d.cache[key] = prob
+    prob = d.cache[key]
+    conf = prob.max(axis=1)
+    pred = np.where(conf > 0, prob.argmax(axis=1), d.code("NO_EVIDENCE"))
+    if cutoff:
+        pred = low_confidence(d, pred, conf * 100 < cutoff - PCT_TOLERANCE)
+    return pred, conf * 100
+
+
 # ------------------------------------------------------------- the rules ----
 
 def build_combinations(d):
@@ -1016,6 +1135,14 @@ def build_combinations(d):
             add("AD. Similar letter profiles", f"the {k} smORFs with the most similar COG letters "
                 f"(5 genes per side, linear weights, up/downstream kept apart, exact search) vote, "
                 f"{cname}", similar_vote, engine="exact", k=k, exclude=ex, vectors="letters")
+
+    # AE. random forest, with and without a confidence cutoff (8)
+    for cut in (None, 40, 50, 60):
+        for cname, ex in cats_opts:
+            need = f", predict only if confidence >= {cut}%" if cut else ""
+            add("AE. Random forest", f"random forest on COG letters, strand and distance of 5 genes per side "
+                f"(each half predicted by a model trained on the other half){need}, {cname}",
+                random_forest, exclude=ex, cutoff=cut)
     return combos
 
 

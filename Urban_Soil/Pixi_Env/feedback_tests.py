@@ -17,10 +17,9 @@ is read from it); everything is written there:
 2. Exact against approximate nearest neighbours (Ben/Luis: 150k smORFs is
    small enough to search exactly): how many of the exact neighbours Annoy
    and Voyager find, and the TEST accuracy of each.
-3. Machine learning (Ben): random forest and logistic regression on one-hot
-   COG letters of each neighbour position (5 per side), with strand,
-   distance and the number of occurrences, trained on TRAIN and scored on
-   TEST. Accuracy at each confidence level, so every prediction can be
+3. Random forest (Ben; the AE rules of sweep_db.py) on one-hot COG letters
+   of each neighbour position (5 per side), with strand, distance and the
+   number of occurrences, trained on TRAIN and scored on TEST. Accuracy at each confidence level, so every prediction can be
    reported with an estimated accuracy (Luis). With --clusters (CD-HIT
    .clstr of the smORFs at 90%), also with TRAIN/TEST split by 90% cluster,
    so near-identical smORFs are never on both sides.
@@ -50,7 +49,6 @@ import sweep_db as sw
 SEED = 0  # as cascade.py
 CONFIDENCE_STEPS = (0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 CALIBRATION_BINS = (0.0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.01)
-N_POS = 5  # neighbour positions per side used as ML features
 
 REPORT = None  # feedback_report.txt, written as it goes
 
@@ -67,14 +65,6 @@ def pct(a, b):
 
 
 # --------------------------------------------------------------- splits ----
-
-def random_split(d):
-    """TRAIN and TEST smORF indices, exactly as cascade.py"""
-    annotated = [int(i) for i in np.flatnonzero(d.smorfs["annotated"].to_numpy())]
-    random.Random(SEED).shuffle(annotated)
-    half = len(annotated) // 2
-    return np.array(sorted(annotated[:half])), np.array(sorted(annotated[half:]))
-
 
 def read_clusters(path, wanted):
     """smorf_id -> 90% cluster number, for the smorf_ids in wanted"""
@@ -113,15 +103,6 @@ def cluster_split(d, path):
 
 
 # -------------------------------------------------------------- scoring ----
-
-def known_matrix(d, exclude=()):
-    """smORF x category: is it a known category (not excluded)?"""
-    k = np.zeros((d.smorfs.height, d.n_cats), dtype=bool)
-    t = d.targets.filter(~pl.col("cat").is_in(list(exclude)))
-    code = t["cat"].cast(pl.Enum(d.labels[:d.n_cats])).to_physical().to_numpy()
-    k[t["smorf"].to_numpy(), code] = True
-    return k
-
 
 def score(d, pred, rows, k):
     """(evaluated, correct, coverage %, accuracy %) of pred on rows"""
@@ -185,123 +166,63 @@ def exact_vs_approximate(d, combos, test, ks):
             say(f"{c['id']}\t{cov}\t{acc}\t{c['rule']}")
 
 
-# ------------------------------------------------------ 3 machine learning ----
+# ------------------------------------------------------ 3 random forest ----
 
-def ml_features(d):
-    """smORF x features: for each side and position 1-5, the share of
-    occurrences whose gene there has each COG letter (multi-letter genes
-    split), is on the smORF's strand, and its log distance; plus the log
-    number of occurrences. Also the feature names."""
-    nb = d.nb
-    n_smorfs = d.smorfs.height
-    n_occ = np.maximum(np.bincount(d.occ_smorf, minlength=n_smorfs), 1)
-    use = nb["rank"] <= N_POS
-    side = (d.info["side"][nb["ent"]].astype(np.int64) if d.info is not None
-            else np.zeros(len(nb["ent"]), dtype=np.int64))
-    slot = side * N_POS + nb["rank"].astype(np.int64) - 1  # 0..2*N_POS-1
-    n_slot = 2 * N_POS
-
-    letters = np.bincount((nb["smorf"].astype(np.int64) * n_slot + slot)[use] * d.n_cats + nb["code"][use],
-                          weights=1 / nb["ncat"][use], minlength=n_smorfs * n_slot * d.n_cats)
-    feats = [letters.reshape(n_smorfs, n_slot * d.n_cats)]
-    names = [f"{'up' if s < N_POS else 'down'}{s % N_POS + 1}_{c}"
-             for s in range(n_slot) for c in d.labels[:d.n_cats]]
-    if d.info is not None:
-        first = sw.run_starts(nb["ent"])
-        first = first[use[first]]
-        key = nb["smorf"][first].astype(np.int64) * n_slot + slot[first]
-        size = n_smorfs * n_slot
-        gene = nb["ent"][first]
-        for name, value in (("same_strand", d.info["same"][gene].astype(float)),
-                            ("log_distance", np.log1p(np.maximum(d.info["dist"][gene], 0))),
-                            ("overlaps", (d.info["gap"][gene] < 0).astype(float))):
-            feats.append(np.bincount(key, weights=value, minlength=size).reshape(n_smorfs, n_slot))
-            names += [f"{'up' if s < N_POS else 'down'}{s % N_POS + 1}_{name}" for s in range(n_slot)]
-    x = np.hstack(feats) / n_occ[:, None]
-    x = np.hstack([x, np.log(n_occ)[:, None]])
-    names.append("log_occurrences")
-    return x.astype(np.float32), names
-
-
-def train_rows(d, rows, k):
-    """One training row per (smORF, known category), weight 1/categories"""
-    r, c = np.nonzero(k[rows])
-    n = k[rows].sum(axis=1)
-    return rows[r], c, 1.0 / n[r]
-
-
-def ml_test(d, x, has, train, test, ks, label, models, write=None):
-    """Fit each model on TRAIN, report TEST accuracy by confidence"""
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.pipeline import make_pipeline
-    from sklearn.preprocessing import StandardScaler
-
-    say(f"\n  {label}: TRAIN {len(train):,}, TEST {len(test):,} annotated smORFs")
-    for cname, ex in (("all categories", ()), ("excluding S and R", sw.SR)):
-        k = ks[ex]
-        tr = train[has[train] & k[train].any(axis=1)]
-        rows, y, w = train_rows(d, tr, k)
-        for mname in models:
-            t = time.time()
-            model = (RandomForestClassifier(n_estimators=300, min_samples_leaf=3, n_jobs=sw.cpus(),
-                                            random_state=SEED) if mname == "random forest" else
-                     make_pipeline(StandardScaler(), LogisticRegression(max_iter=3000)))
-            fit_kw = {"sample_weight": w} if mname == "random forest" else {"logisticregression__sample_weight": w}
-            model.fit(x[rows], y, **fit_kw)
-            classes = model.classes_
-            prob = np.zeros((d.smorfs.height, d.n_cats))
-            go = np.flatnonzero(has)
-            prob[np.ix_(go, classes)] = model.predict_proba(x[go])
-            pred = np.where(has, prob.argmax(axis=1), d.code("NO_EVIDENCE"))
-            conf = prob.max(axis=1)
-            say(f"\n  {mname}, {cname} ({time.time() - t:.0f}s)")
-            say("  predict only if confidence >=\tcoverage %\taccuracy %")
-            for step in CONFIDENCE_STEPS:
-                p = np.where(conf >= step, pred, d.code("LOW_CONFIDENCE"))
-                n, ok, cov, acc = score(d, p, test, k)
-                say(f"  {step:.1f}\t{cov}\t{acc}")
-            say("  confidence bin\tTEST smORFs\taccuracy %   (estimated accuracy per prediction)")
-            pt, kt = pred[test], k[test]
-            ev = (pt < d.n_cats) & kt.any(axis=1)
-            ok = ev & kt[np.arange(len(test)), np.minimum(pt, d.n_cats - 1)]
-            for lo, hi in zip(CALIBRATION_BINS[:-1], CALIBRATION_BINS[1:]):
-                b = ev & (conf[test] >= lo) & (conf[test] < hi)
-                say(f"  {lo:.1f}-{min(hi, 1):.1f}\t{b.sum():,}\t{pct((ok & b).sum(), b.sum())}")
-            if mname == "random forest" and cname == "all categories":
-                imp = np.argsort(-model.feature_importances_)[:15]
-                say("  most important features: " + ", ".join(f"{NAMES[i]} ({model.feature_importances_[i]:.3f})"
-                                                              for i in imp))
-                if write is not None:
-                    write(pred, conf)
+def forest_table(d, prob, test, k):
+    """TEST accuracy at each confidence level, and per confidence bin"""
+    conf = prob.max(axis=1)
+    pred = np.where(conf > 0, prob.argmax(axis=1), d.code("NO_EVIDENCE"))
+    say("  predict only if confidence >=\tcoverage %\taccuracy %")
+    for step in CONFIDENCE_STEPS:
+        n, ok, cov, acc = score(d, np.where(conf >= step, pred, d.code("LOW_CONFIDENCE")), test, k)
+        say(f"  {step:.1f}\t{cov}\t{acc}")
+    say("  confidence bin\tTEST smORFs\taccuracy %   (estimated accuracy per prediction)")
+    pt, kt = pred[test], k[test]
+    ev = (pt < d.n_cats) & kt.any(axis=1)
+    ok = ev & kt[np.arange(len(test)), np.minimum(pt, d.n_cats - 1)]
+    for lo, hi in zip(CALIBRATION_BINS[:-1], CALIBRATION_BINS[1:]):
+        b = ev & (conf[test] >= lo) & (conf[test] < hi)
+        say(f"  {lo:.1f}-{min(hi, 1):.1f}\t{b.sum():,}\t{pct((ok & b).sum(), b.sum())}")
+    return pred, conf
 
 
 def machine_learning(d, train, test, ks, clusters, folder):
-    global NAMES
-    say("\n3. MACHINE LEARNING on one-hot COG letters per neighbour position (TRAIN -> TEST)")
-    x, NAMES = ml_features(d)
-    has = x[:, :-1].any(axis=1)
-    say(f"  {x.shape[1]} features; {has.sum():,} of {d.smorfs.height:,} smORFs have at least one")
+    """The random forest rules of sweep_db.py (random_forest): accuracy by
+    confidence on TEST, the most important features, and the same with
+    TRAIN/TEST split by 90% cluster"""
+    say("\n3. RANDOM FOREST (sweep_db.py rules AE): TRAIN -> TEST, by confidence")
+    x = sw.ml_features(d)
+    names = sw.feature_names(d)
+    say(f"  {x.shape[1]} features; {x[:, :-1].any(axis=1).sum():,} of {d.smorfs.height:,} smORFs have at least one")
     cascade = folder / "cascade_results.tsv"
     if cascade.exists():  # the cascade's last step, for comparison
         steps = [l.split("\t") for l in cascade.read_text().splitlines() if l[:1].isdigit()]
         if steps:
             say(f"  (cascade.py on the same TEST half: {steps[-1][5]}% accuracy at {steps[-1][4]}% coverage)")
 
-    def write(pred, conf):
-        labels = pl.Series(d.labels)
-        part = np.full(d.smorfs.height, "", dtype=object)
-        part[train], part[test] = "TRAIN", "TEST"
-        (d.smorfs.select("bin", "smorf_id", "known_category")
-         .with_columns(split=pl.Series(part.tolist()), prediction=labels.gather(pred),
-                       confidence=pl.Series(np.round(conf, 3)))
-         .write_csv(folder / "ml_predictions.tsv", separator="\t"))
-
-    ml_test(d, x, has, train, test, ks, "random split (as cascade.py)", ("random forest", "logistic regression"),
-            write)
+    splits = [("random split (as cascade.py)", train, test)]
     if clusters:
-        tr, te = cluster_split(d, clusters)
-        ml_test(d, x, has, tr, te, ks, "split by 90% cluster", ("random forest",))
+        splits.append(("split by 90% cluster", *cluster_split(d, clusters)))
+    for label, tr, te in splits:
+        say(f"\n  {label}: TRAIN {len(tr):,}, TEST {len(te):,} annotated smORFs")
+        for cname, ex in (("all categories", ()), ("excluding S and R", sw.SR)):
+            t = time.time()
+            model = sw.fit_forest(x, ks[ex], tr)
+            prob = sw.forest_probabilities(model, x, d.n_cats)
+            say(f"\n  random forest, {cname} ({time.time() - t:.0f}s)")
+            pred, conf = forest_table(d, prob, te, ks[ex])
+            if cname == "all categories":
+                imp = np.argsort(-model.feature_importances_)[:15]
+                say("  most important features: " + ", ".join(
+                    f"{names[i]} ({model.feature_importances_[i]:.3f})" for i in imp))
+                if te is test:
+                    labels = pl.Series(d.labels)
+                    part = np.full(d.smorfs.height, "", dtype=object)
+                    part[train], part[test] = "TRAIN", "TEST"
+                    (d.smorfs.select("bin", "smorf_id", "known_category")
+                     .with_columns(split=pl.Series(part.tolist()), prediction=labels.gather(pred),
+                                   confidence=pl.Series(np.round(conf, 3)))
+                     .write_csv(folder / "ml_predictions.tsv", separator="\t"))
 
 
 # -------------------------------------------------- 4 one factor at a time ----
@@ -406,10 +327,9 @@ def main():
     d = sw.load_db(db)
     say(f"Loaded {d.smorfs.height:,} smORFs in {time.time() - t0:.0f}s")
     combos = sw.build_combinations(d)
-    train, test = random_split(d)
+    train, test = sw.halves(d)
     say(f"annotated smORFs: TRAIN {len(train):,}, TEST {len(test):,} (random split, seed {SEED}, as cascade.py)")
-    ks = {(): known_matrix(d), sw.SR: known_matrix(d, sw.SR), ("S",): known_matrix(d, ("S",)),
-          ("R",): known_matrix(d, ("R",))}
+    ks = {ex: sw.known_matrix(d, ex) for ex in ((), sw.SR, ("S",), ("R",))}
 
     baselines(d, combos, test, ks)
     one_factor(combos, folder)

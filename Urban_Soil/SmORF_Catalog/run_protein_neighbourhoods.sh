@@ -1,6 +1,6 @@
 #!/bin/bash
 # Normal proteins instead of smORFs: builds protein_neighbourhoods.sqlite in a
-# NEW folder (the smORF databases are not touched), then runs the 236 rules
+# NEW folder (the smORF databases are not touched), then runs the 244 rules
 # on it (sweep_db.py) and the protein -> smORF tests (protein_tests.py).
 # Three chained PBS jobs, each starting only if the one before finished:
 #   1. chunks   N pieces as one array job (protein_neighbourhoods_sqlite.py)
@@ -16,7 +16,7 @@ PIXI_ENV=$(cd "$CODE/../Pixi_Env" && pwd)
 PY="pixi run --manifest-path $PIXI_ENV/pixi.toml python -u"
 NB=/work/microbiome/users/kruthi/intermediate_results/urban_soil/Neighbourhood_Analysis_SQL
 OUT=$NB/Protein_Neighbourhoods
-SMORF_RULES=$NB/sweep_results_236rules/combinations_results.csv
+SMORF_RULES=$NB/sweep_results_244rules/combinations_results.csv
 QUEUE=cpu_batch_exec
 RPID=DFAZCB7230
 LOGS=$OUT/logs
