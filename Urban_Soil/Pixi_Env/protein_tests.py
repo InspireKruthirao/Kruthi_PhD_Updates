@@ -6,7 +6,7 @@ annotated smORFs are needed.) And how well do the rules do on proteins?
     python3 protein_tests.py protein_neighbourhoods.sqlite smorf_neighbourhoods.sqlite OUT_FOLDER \
         [--protein-rules combinations_results.csv] [--smorf-rules combinations_results.csv]
 
-Random forest on the same features as feedback_tests.py (one-hot COG letters
+Random forest on the same features as the random forest rules of predict_function.py (one-hot COG letters
 of 5 genes per side, strand, distance, overlap; without the number of
 occurrences, as every protein has one), each scored by how often the
 predicted category is one of the known ones:
@@ -20,7 +20,7 @@ predicted category is one of the known ones:
   C. smORFs -> smORFs            trained on the TRAIN half (the reference)
   D. proteins + smORFs -> smORFs trained on all proteins and the TRAIN half
 
-With --protein-rules and --smorf-rules (sweep_db.py results on each), also the
+With --protein-rules and --smorf-rules (predict_function.py results on each), also the
 rules side by side: rules_proteins_vs_smorfs.tsv.
 
 Writes protein_tests_report.txt (as it goes) in OUT_FOLDER.
@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-import sweep_db as sw
+import predict_function as sw
 
 SEED = 0
 STEPS = (0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
@@ -78,7 +78,7 @@ def occurrence_average(prob_occ, d):
 
 
 def rules_side_by_side(protein_csv, smorf_csv, folder):
-    say("\nRULES ON PROTEINS AND ON smORFs (accuracy % / coverage %; sweep_db.py on each database)")
+    say("\nRULES ON PROTEINS AND ON smORFs (accuracy % / coverage %; predict_function.py on each database)")
     cov = "Coverage (% of annotated smORFs evaluated)"
     read = lambda p: {r["ID"]: r for r in csv.DictReader(open(p, newline=""))}
     pr, sm = read(protein_csv), read(smorf_csv)

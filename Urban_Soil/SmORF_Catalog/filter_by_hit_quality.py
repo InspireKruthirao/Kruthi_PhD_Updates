@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-A copy of the smorfs table of smorf_neighbourhoods.sqlite (what sweep_db.py
+A copy of the smorfs table of smorf_neighbourhoods.sqlite (what predict_function.py
 reads) in which genes whose eggNOG hit is weak count as having no COG
 category: as neighbours (they do not vote) and as targets (the smORF loses
 that known category).

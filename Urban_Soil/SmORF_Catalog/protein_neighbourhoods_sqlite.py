@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Neighbourhoods of normal proteins, in the same format as
-smorf_neighbourhoods.sqlite, so the same rules (sweep_db.py) and models can
+smorf_neighbourhoods.sqlite, so the same rules (predict_function.py) and models can
 be trained and tested on them (supervisor meeting 28 October 2026: "benchmark
 the rules on all proteins"; and a model trained on proteins needs no
 annotated smORFs).

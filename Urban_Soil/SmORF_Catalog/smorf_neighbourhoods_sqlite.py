@@ -9,7 +9,7 @@ separate database, smorf_neighbourhoods.sqlite (no millions of files):
     neighbours    one row per gene around it (WINDOW per side): rank, side,
                   ORF, Original_ID, coordinates, strand, distance to the
                   target gene in bp, COG ID and category, has eggNOG
-    smorfs        one row per smORF in the format sweep_db.py reads
+    smorfs        one row per smORF in the format predict_function.py reads
     files         one row per occurrence: the text of its neighbors.tsv,
                   EggNOG_annotations.tsv and <contig>.gff (zlib-compressed;
                   read them with the export command, or see read_files)
@@ -272,7 +272,7 @@ def cog_parts(name):
 
 def occurrence_rows(occ_id, genes, anchor, annotations):
     """One row per neighbour gene for the neighbours table, plus the
-    occurrence as stored in the smorfs table (the format sweep_db.py reads):
+    occurrence as stored in the smorfs table (the format predict_function.py reads):
     neighbours as [rank, [COG letters]] outwards from the target, upstream
     side first in the target's direction, and for each the same side,
     same_strand, dist_bp, gap_bp, cog_id as build_all_bins_db.py v2."""

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Held-out check and cascade of rules, from the output of sweep_db.py.
+Held-out check and cascade of rules, from the output of predict_function.py.
 
 The annotated smORFs are split at random into two halves: TRAIN, used to
 choose, and TEST, used only to report. Everything chosen on TRAIN is scored

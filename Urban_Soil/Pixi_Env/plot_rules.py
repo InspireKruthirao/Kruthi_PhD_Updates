@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Accuracy against coverage for every rule in combinations_results.csv (the
-output of sweep_db.py): one dot per rule, coloured by rule group.
+output of predict_function.py): one dot per rule, coloured by rule group.
 
 A rule is on the best-trade-off line (Pareto front) if no other rule is both
 more accurate and covers more smORFs. These rules are labelled, and listed

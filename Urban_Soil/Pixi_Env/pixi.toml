@@ -15,7 +15,7 @@ zstd = ">=1.5"
 scikit-learn = ">=1.5"
 
 [tasks]
-sweep = "python sweep_db.py"
+predict = "python predict_function.py"
 
 [target.linux-64.dependencies]
 voyager = ">=2.1"

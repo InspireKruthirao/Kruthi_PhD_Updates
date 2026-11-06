@@ -3,11 +3,16 @@
 Predict the COG category of every smORF from its neighbour genes with 244
 rules, and score each rule on the smORFs whose category is known.
 
-    python3 sweep_db.py smorf_neighbourhoods.sqlite           show the results
-    python3 sweep_db.py smorf_neighbourhoods.sqlite --save    also save:
+    python3 predict_function.py smorf_neighbourhoods.sqlite           show the results
+    python3 predict_function.py smorf_neighbourhoods.sqlite --save    also save:
         predictions_all_smorfs.tsv   every smORF x every rule
         combinations_results.csv     one row per rule: accuracy and coverage
         results_by_bin.csv           the same, per bin
+    add --report for the random forest by confidence and the rules compared
+    one setting at a time:
+        report.txt                   both tables
+        random_forest_predictions.tsv  prediction and confidence per smORF
+        one_factor_comparisons.tsv   every pair of rules that differ in one setting
 
 The input (from smorf_neighbourhoods_sqlite.py) has one row per smORF with
 a JSON list of its occurrences: neighbour genes as [rank, [COG letters]],
@@ -1248,11 +1253,150 @@ def evaluate(d, combos, preds, pcts, save=True):
     orig = next(r for r in rows if "ORIGINAL" in r["Rule"] and "all categories" in r["Rule"])
     print(f"\nOriginal method ({orig['ID']}): accuracy {orig['Accuracy (%)']}%  "
           f"coverage {orig['Coverage (% of annotated smORFs evaluated)']}%")
+    return rows
+
+
+# -------------------------------------------------------------- report ----
+# --report (supervisor meeting 28 October 2026): how accurate the random
+# forest is at each confidence level, and rules compared one setting at a time
+
+CONFIDENCE_STEPS = (0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+CALIBRATION_BINS = (0.0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.01)
+
+
+def forest_report(d, out):
+    """Random forest (rules AE) on the TEST half, as cascade.py: accuracy if
+    only predictions with confidence >= x are kept, accuracy per confidence
+    bin (the estimated accuracy of a prediction), the most important
+    features; and random_forest_predictions.tsv."""
+    train, test = halves(d)
+    out.append("1. RANDOM FOREST on the TEST half (predicted by the model trained on the TRAIN half)")
+    for cname, ex in (("all categories", ()), ("excluding S and R", SR)):
+        if ("forest", ex) not in d.cache:
+            continue
+        prob, k = d.cache[("forest", ex)], known_matrix(d, ex)
+        conf = prob.max(axis=1)
+        pred = np.where(conf > 0, prob.argmax(axis=1), d.code("NO_EVIDENCE"))
+        made = (pred[test] < d.n_cats) & k[test].any(axis=1)
+        right = made & k[test, np.minimum(pred[test], d.n_cats - 1)]
+        c = conf[test]
+        out.append(f"\n  {cname}\n  predict only if confidence >=\tcoverage %\taccuracy %")
+        for step in CONFIDENCE_STEPS:
+            keep = made & (c >= step)
+            out.append(f"  {step:.1f}\t{pct(keep.sum(), len(test))}\t{pct((right & keep).sum(), keep.sum())}")
+        out.append("  confidence bin\tTEST smORFs\taccuracy %")
+        for lo, hi in zip(CALIBRATION_BINS[:-1], CALIBRATION_BINS[1:]):
+            b = made & (c >= lo) & (c < hi)
+            out.append(f"  {lo:.1f}-{min(hi, 1):.1f}\t{b.sum():,}\t{pct((right & b).sum(), b.sum())}")
+        if not ex:
+            x = ml_features(d)
+            model = fit_forest(x, k, train)
+            names = feature_names(d)
+            top = np.argsort(-model.feature_importances_)[:15]
+            out.append("  most important features (model trained on TRAIN): "
+                       + ", ".join(f"{names[i]} ({model.feature_importances_[i]:.3f})" for i in top))
+            part = np.full(d.smorfs.height, "", dtype=object)
+            part[train], part[test] = "TRAIN", "TEST"
+            (d.smorfs.select("bin", "smorf_id", "known_category")
+             .with_columns(half=pl.Series(part.tolist()), prediction=pl.Series(d.labels).gather(pred),
+                           confidence=pl.Series(np.round(conf, 3)))
+             .write_csv("random_forest_predictions.tsv", separator="\t"))
+
+
+def full_settings(c):
+    """The rule's settings with the function's defaults filled in"""
+    import inspect
+    s = {k: p.default for k, p in inspect.signature(c["fn"]).parameters.items()
+         if p.default is not inspect.Parameter.empty}
+    s.update(c["settings"])
+    return s
+
+
+def same_value(a, b):
+    if isinstance(a, np.ndarray) or isinstance(b, np.ndarray) or isinstance(a, random.Random):
+        return a is b
+    try:
+        return bool(a == b)
+    except Exception:
+        return a is b
+
+
+def shown(v):
+    if isinstance(v, np.ndarray):
+        return "divided by how common"
+    if isinstance(v, tuple) and not v:
+        return "none"
+    if isinstance(v, tuple) and all(isinstance(x, str) for x in v):
+        return ",".join(v)
+    return str(v)
+
+
+def one_factor_report(combos, rows, out):
+    """Every pair of rules that differ in exactly one setting (same method),
+    with the change in accuracy and coverage; summarised per setting.
+    Writes one_factor_comparisons.tsv."""
+    cov = "Coverage (% of annotated smORFs evaluated)"
+    res = {r["ID"]: r for r in rows if r["Accuracy (%)"]}
+    by_fn = {}
+    for c in combos:
+        if c["id"] in res and not c["group"].startswith("J."):
+            by_fn.setdefault(c["fn"].__name__, []).append(c)
+    pairs = []
+    for fn, cs in by_fn.items():
+        full = [full_settings(c) for c in cs]
+        for i in range(len(cs)):
+            for j in range(i + 1, len(cs)):
+                diff = [k for k in set(full[i]) | set(full[j]) if not same_value(full[i].get(k), full[j].get(k))]
+                if len(diff) != 1:
+                    continue
+                f, a, b = diff[0], i, j
+                va, vb = full[a].get(f), full[b].get(f)
+                if (isinstance(va, (int, float)) and isinstance(vb, (int, float)) and va > vb) or \
+                        (vb is None and va is not None):
+                    a, b, va, vb = b, a, vb, va
+                ra, rb = res[cs[a]["id"]], res[cs[b]["id"]]
+                pairs.append({"method": fn, "setting": f, "from": shown(va), "to": shown(vb),
+                              "rule A": cs[a]["id"], "rule B": cs[b]["id"],
+                              "accuracy A": float(ra["Accuracy (%)"]), "accuracy B": float(rb["Accuracy (%)"]),
+                              "coverage A": float(ra[cov]), "coverage B": float(rb[cov])})
+    out.append("\n2. ONE FACTOR AT A TIME: rule pairs that differ in exactly one setting "
+               "(all annotated smORFs)")
+    if not pairs:
+        out.append("  no pairs")
+        return
+    for p in pairs:
+        p["accuracy change"] = round(p["accuracy B"] - p["accuracy A"], 1)
+        p["coverage change"] = round(p["coverage B"] - p["coverage A"], 1)
+    with open("one_factor_comparisons.tsv", "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(pairs[0]), delimiter="\t")
+        w.writeheader()
+        w.writerows(pairs)
+    groups = {}
+    for p in pairs:
+        groups.setdefault((p["method"], p["setting"], p["from"], p["to"]), []).append(p)
+    out.append(f"  {len(pairs)} pairs (all in one_factor_comparisons.tsv); median change from A to B:")
+    out.append("method\tsetting\tfrom -> to\tpairs\taccuracy change\tcoverage change")
+    for (fn, f, va, vb), ps in sorted(groups.items()):
+        out.append(f"{fn}\t{f}\t{va} -> {vb}\t{len(ps)}\t{np.median([p['accuracy change'] for p in ps]):+.1f}\t"
+                   f"{np.median([p['coverage change'] for p in ps]):+.1f}")
+    out.append("  (setting 'exclude': the two rules are scored on different smORFs, so compare with care)")
+
+
+def report(d, combos, rows):
+    """--report: report.txt, random_forest_predictions.tsv, one_factor_comparisons.tsv"""
+    out = []
+    forest_report(d, out)
+    one_factor_report(combos, rows, out)
+    with open("report.txt", "w") as fh:
+        fh.write("\n".join(out) + "\n")
+    print("\n" + "\n".join(out[:40]) + "\n  ... (all in report.txt)", flush=True)
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != "--save"]
+    flags = {"--save", "--report"}
+    args = [a for a in sys.argv[1:] if a not in flags]
     save = "--save" in sys.argv[1:]
+    with_report = "--report" in sys.argv[1:]
     if len(args) != 1:
         sys.exit(__doc__)
     t0 = time.time()
@@ -1263,11 +1407,15 @@ def main():
     print(f"\nPART 1 - PREDICT: {len(combos)} rules on all smORFs", flush=True)
     preds, pcts = predict(d, combos, save)
     print("\nPART 2 - EVALUATE: annotated smORFs only", flush=True)
-    evaluate(d, combos, preds, pcts, save)
+    rows = evaluate(d, combos, preds, pcts, save)
+    if with_report:
+        print("\nPART 3 - REPORT", flush=True)
+        report(d, combos, rows)
 
     print(f"\nDone in {(time.time() - t0) / 60:.1f} min."
           + (" Saved predictions_all_smorfs.tsv, combinations_results.csv, results_by_bin.csv" if save
-             else " No files saved (add --save to save them)."))
+             else " No files saved (add --save to save them).")
+          + (" Saved report.txt, random_forest_predictions.tsv, one_factor_comparisons.tsv" if with_report else ""))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs the 244 rules (Pixi_Env/sweep_db.py) on a neighbourhood database, then
+# Runs the 244 rules (Pixi_Env/predict_function.py) on a neighbourhood database, then
 # the held-out check and cascade (Pixi_Env/cascade.py). Run inside tmux:
 #     bash run_sweep.sh                                     smorf_neighbourhoods.sqlite
 #     bash run_sweep.sh smorf_neighbourhoods_q50_s50_p30_e1e-10.sqlite   a filtered copy
@@ -21,5 +21,5 @@ mkdir -p "$RESULTS"
 cd "$RESULTS"
 echo "Database: $DB"
 echo "Results:  $RESULTS"
-pixi run --manifest-path "$PIXI_ENV/pixi.toml" python "$PIXI_ENV/sweep_db.py" "$DB" --save 2>&1 | tee sweep.log
+pixi run --manifest-path "$PIXI_ENV/pixi.toml" python "$PIXI_ENV/predict_function.py" "$DB" --save 2>&1 | tee sweep.log
 pixi run --manifest-path "$PIXI_ENV/pixi.toml" python "$PIXI_ENV/cascade.py" . 2>&1 | tee -a sweep.log

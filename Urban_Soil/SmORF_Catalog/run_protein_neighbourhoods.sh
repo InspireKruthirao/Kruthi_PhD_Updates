@@ -1,11 +1,11 @@
 #!/bin/bash
 # Normal proteins instead of smORFs: builds protein_neighbourhoods.sqlite in a
 # NEW folder (the smORF databases are not touched), then runs the 244 rules
-# on it (sweep_db.py) and the protein -> smORF tests (protein_tests.py).
+# on it (predict_function.py) and the protein -> smORF tests (protein_tests.py).
 # Three chained PBS jobs, each starting only if the one before finished:
 #   1. chunks   N pieces as one array job (protein_neighbourhoods_sqlite.py)
 #   2. merge    the N pieces -> protein_neighbourhoods.sqlite
-#   3. tests    sweep_db.py on the proteins, then protein_tests.py
+#   3. tests    predict_function.py on the proteins, then protein_tests.py
 #     bash run_protein_neighbourhoods.sh        (N = 50)
 # Results: Neighbourhood_Analysis_SQL/Protein_Neighbourhoods/
 
@@ -51,7 +51,7 @@ TESTS=$(qsub -N prot_tests -P $RPID -q $QUEUE -W depend=afterok:$MERGE \
 set -eo pipefail
 mkdir -p "$OUT/sweep_results" "$OUT/protein_tests"
 cd "$OUT/sweep_results"
-$PY "$PIXI_ENV/sweep_db.py" "$OUT/protein_neighbourhoods.sqlite" --save 2>&1 | grep -v "^ WARN" > sweep.log
+$PY "$PIXI_ENV/predict_function.py" "$OUT/protein_neighbourhoods.sqlite" --save 2>&1 | grep -v "^ WARN" > sweep.log
 $PY "$PIXI_ENV/protein_tests.py" "$OUT/protein_neighbourhoods.sqlite" "$NB/smorf_neighbourhoods.sqlite" \
     "$OUT/protein_tests" --protein-rules "$OUT/sweep_results/combinations_results.csv" \
     --smorf-rules "$SMORF_RULES" 2>&1 | grep -v "^ WARN" > "$OUT/protein_tests/protein_tests.log"
