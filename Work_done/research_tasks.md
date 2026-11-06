@@ -114,3 +114,33 @@ Plot accuracy against coverage for all 184 rules.
    - Hongyu wants to run it on cow microbiome data
    - Next meeting around January 2027 (2-year mark 21 Jan 2027); second-year seminar and report; Spain visit: ask the consulate to amend the dates, aim Feb-Apr 2027
    - To do - write the aggregation/conflict description; use C097/C098 as baseline; one-factor-at-a-time rule comparisons; exact nearest neighbours vs Annoy/Voyager; ML classifier on one-hot neighbours; rerun with smORFs clustered at 90%; rules on all proteins; make the pipeline easy for Hongyu
+
+  30/10/2026
+   - Kruthi - Added rules C193-C228 to sweep_db.py: coupled/overlapping genes, upstream-only and downstream-only votes, same strand at any distance, operon + distance weighting, margin cutoff, tie-breaking (228 rules)
+   - Kruthi - Results (228 rules): none of the new rules entered the cascade (still 56.1% at 97.8%); downstream genes are more informative than upstream genes
+
+  04/11/2026 - Feedback from the 28 October meeting
+   - Kruthi - Added rules C229-C236: exact nearest neighbours (Ben/Luis; 51 s for all 151k smORFs) and similar COG letter profiles (Ben's vector idea: one-hot letters of 5 genes per side, closer genes weighted more)
+   - Kruthi - Exact vs approximate: Annoy finds 54% and Voyager 56% of the true 10 nearest neighbours; exact search is 4-6 points more accurate (C229 62.8% vs Voyager C189 58.2% on TEST)
+   - Kruthi - Letter profiles: C233 61.2% at 94.6% coverage (highest coverage of any single rule)
+   - Kruthi - Random forest (Ben) on one-hot COG letters per neighbour position + strand + distance: 60.0% at 100% coverage on TEST; at confidence >= 0.5 93.8% at 26.8% (C172: 93.8% at 9.7%). Split TRAIN/TEST by 90% cluster (52,413 clusters): 57.0%, so near-identical smORFs add only ~3 points
+   - Kruthi - Baseline (Luis): always the most common category 26.1% (C097)
+   - Kruthi - One factor at a time (Ben), 592 rule pairs differing in one setting (median change): same strand +3.8 accuracy / -1.1 coverage; downstream vs upstream +4.4; operon gap 0 -> 200 bp -7.1 / +49.3; neighbours 1 -> 5 -6.4 / +17.6; no change beyond 5 neighbours; dividing votes by how common a category is -8.1; tie-breaking and minimum occurrences ~0
+   - Kruthi - Cascade with the 236 rules: 60.8% at 99.9% (was 56.1% at 97.8%); exact search C229 replaced Voyager
+   - Kruthi - PBS jobs need -P DFAZCB7230 (lab RPID, from mqsub); GitHub push over SSH from the HPC (key id_ed25519_github)
+
+  05/11/2026
+   - Kruthi - Random forest added to sweep_db.py as rules C237-C244 (all / excluding S and R; confidence cutoffs none, 40, 50, 60%). Each half of the annotated smORFs is predicted by a model trained on the other half (the cascade's TRAIN/TEST halves), so accuracies are not inflated
+   - Kruthi - Normal proteins (Luis/Ben: "rules on all proteins"; also for data without annotated smORFs): protein_neighbourhoods_sqlite.py built a NEW database of 215,985 random proteins > 100 aa with a COG category (Protein_Neighbourhoods/); protein_tests.py
+   - Kruthi - Trained on proteins only: 44% correct on smORFs (vs 60% trained on smORFs, 39% original method, 26% baseline); at confidence >= 0.8 still 97% (5% of smORFs). Usable when a dataset has no annotated smORFs
+   - Kruthi - Proteins + smORFs together: 58% (no better than smORFs alone). Neighbours predict normal proteins less well (44%) than smORFs (60%): smORF neighbourhoods are more informative
+   - Kruthi - Rules on proteins vs smORFs: accuracies correlate (r = 0.66, 206 rules); sandwiched C166 87% on proteins vs 92% on smORFs; similar-neighbourhood rules much worse on proteins (C229 31% vs 63%)
+   - Kruthi - Found: 97% of smORFs overlap a Prodigal gene of about the same length (their known category is their own eggNOG annotation); 3% are intergenic and take the next gene's category
+   - To do - leave the 3% intergenic smORFs out of the scoring
+
+  06/11/2026
+   - Kruthi - Results (244 rules): random forest C243 (confidence >= 60%) 98.2% at 18.6% coverage, the most accurate rule (C172 93.8% at 9.7%); C241 (>= 50%) 94.0% at 26.6%; C237 60.0% at 100%
+   - Kruthi - Cascade (244 rules): 63.2% at 100% coverage; first 5 steps are random forest rules, 49.2% of smORFs at 81.4%
+   - Kruthi - Renamed sweep_db.py to predict_function.py; feedback_tests.py merged into it as --report (random forest by confidence, one factor at a time). Dropped the one-off checks (exact vs Annoy/Voyager, 90% cluster split): answered on 04/11
+   - Kruthi - Results on GitHub: Pixi_Env/combinations_results.csv (244 rules), feedback_results/, protein_results/
+   - To do - check whether the random forest's near-100% cases are trivial (e.g. a smORF inside a bigger gene with the same annotation); write the aggregation/conflict description (Luis); rerun with smORFs clustered at 90% (Ben); simple steps for Hongyu (cow microbiome)
