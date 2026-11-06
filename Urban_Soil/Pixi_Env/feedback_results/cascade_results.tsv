@@ -2,27 +2,31 @@ annotated smORFs: 76,111 (TRAIN 38,055, TEST 38,056)
 
 1. Best rules chosen on TRAIN, scored on TEST
 rule	TRAIN accuracy %	TEST accuracy %	TRAIN coverage %	TEST coverage %	description
+C243	98.1	98.2	18.7	18.6	random forest on COG letters, strand and distance of 5 genes per side (each half predicted by a model trained on the other half), predict only if confidence >= 60%, all categories
+C244	98.0	98.0	19.7	19.7	random forest on COG letters, strand and distance of 5 genes per side (each half predicted by a model trained on the other half), predict only if confidence >= 60%, excluding S and R
+C242	96.2	95.5	24.5	25.0	random forest on COG letters, strand and distance of 5 genes per side (each half predicted by a model trained on the other half), predict only if confidence >= 50%, excluding S and R
+C241	94.2	93.8	26.5	26.8	random forest on COG letters, strand and distance of 5 genes per side (each half predicted by a model trained on the other half), predict only if confidence >= 50%, all categories
 C172	93.8	93.8	9.6	9.7	closest gene on both sides has the same category, both on the target's strand and within 100 bp, in at least 2 genomes, excluding S and R
 C174	93.6	93.8	8.3	8.4	closest gene on both sides has the same category, both on the target's strand and within 100 bp, in at least 50% of its genomes, excluding S and R
+C240	92.7	91.5	32.6	33.7	random forest on COG letters, strand and distance of 5 genes per side (each half predicted by a model trained on the other half), predict only if confidence >= 40%, excluding S and R
 C166	91.8	91.8	12.3	12.7	closest gene on both sides has the same category, both on the target's strand, in at least 50% of its genomes, excluding S and R
 C170	91.6	92.0	8.6	8.7	closest gene on both sides has the same category, both within 100 bp of the target gene, in at least 50% of its genomes, excluding S and R
 C168	91.5	91.7	10.0	10.2	closest gene on both sides has the same category, both within 100 bp of the target gene, in at least 2 genomes, excluding S and R
 C164	91.3	90.9	13.5	13.9	closest gene on both sides has the same category, both on the target's strand, in at least 2 genomes, excluding S and R
 C130	87.8	88.5	13.5	14.0	closest gene on both sides has the same category, in at least 50% of its genomes, excluding S and R
 C128	86.8	86.9	15.2	15.7	closest gene on both sides has the same category, in at least 2 genomes, excluding S and R
+C239	85.3	85.3	42.7	42.9	random forest on COG letters, strand and distance of 5 genes per side (each half predicted by a model trained on the other half), predict only if confidence >= 40%, all categories
 C126	84.1	83.9	17.1	17.7	closest gene on both sides has the same category, in at least 1 genome, excluding S and R
-C053	83.6	83.5	9.6	9.7	linear weights, 5 neighbours, predict only if winner has >= 70% of the vote, all categories
-C054	82.6	81.9	10.9	11.2	linear weights, 5 neighbours, predict only if winner has >= 70% of the vote, excluding S and R
-C171	80.9	81.3	11.7	11.7	closest gene on both sides has the same category, both on the target's strand and within 100 bp, in at least 2 genomes, all categories
-C043	80.7	80.0	9.6	10.0	at least 6 of the 9 nearest agree, all categories
-C173	80.4	81.4	10.1	10.1	closest gene on both sides has the same category, both on the target's strand and within 100 bp, in at least 50% of its genomes, all categories
-C041	80.3	80.6	10.2	10.4	at least 5 of the 7 nearest agree, all categories
 
 2. Cascade (built on TRAIN, scored on TEST): each smORF takes the first rule that predicts
 step	rule	TEST smORFs predicted at this step	TEST accuracy %	cumulative TEST coverage %	cumulative TEST accuracy %	description
-1	C172	4,135	84.1	10.9	84.1	closest gene on both sides has the same category, both on the target's strand and within 100 bp, in at least 2 genomes, excluding S and R
-2	C166	1,326	78.9	14.3	82.8	closest gene on both sides has the same category, both on the target's strand, in at least 50% of its genomes, excluding S and R
-3	C229	28,247	58.6	88.6	62.5	the 10 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, exact search) vote, all categories
-4	C037	1,226	52.4	91.8	62.1	at least 3 of the 5 nearest agree, all categories
-5	C233	2,513	42.7	98.4	60.8	the 10 smORFs with the most similar COG letters (5 genes per side, linear weights, up/downstream kept apart, exact search) vote, all categories
-6	C090	552	57.6	99.9	60.8	steeper weights, 5 neighbours, count every letter fully, excluding S and R
+1	C243	7,066	98.2	18.6	98.2	random forest on COG letters, strand and distance of 5 genes per side (each half predicted by a model trained on the other half), predict only if confidence >= 60%, all categories
+2	C241	3,135	83.8	26.8	93.8	random forest on COG letters, strand and distance of 5 genes per side (each half predicted by a model trained on the other half), predict only if confidence >= 50%, all categories
+3	C242	1,704	68.2	31.3	90.1	random forest on COG letters, strand and distance of 5 genes per side (each half predicted by a model trained on the other half), predict only if confidence >= 50%, excluding S and R
+4	C240	3,594	69.6	40.7	85.4	random forest on COG letters, strand and distance of 5 genes per side (each half predicted by a model trained on the other half), predict only if confidence >= 40%, excluding S and R
+5	C239	3,228	62.2	49.2	81.4	random forest on COG letters, strand and distance of 5 genes per side (each half predicted by a model trained on the other half), predict only if confidence >= 40%, all categories
+6	C164	765	53.1	51.2	80.3	closest gene on both sides has the same category, both on the target's strand, in at least 2 genomes, excluding S and R
+7	C229	15,899	46.5	93.0	65.1	the 10 smORFs with the most similar neighbourhoods (COG IDs within 3 genes, exact search) vote, all categories
+8	C195	702	35.0	94.8	64.5	linear weights, only neighbours in a run of same-strand genes overlapping or touching up to the target gene, all categories
+9	C233	1,680	35.3	99.3	63.2	the 10 smORFs with the most similar COG letters (5 genes per side, linear weights, up/downstream kept apart, exact search) vote, all categories
+10	C238	283	60.4	100.0	63.2	random forest on COG letters, strand and distance of 5 genes per side (each half predicted by a model trained on the other half), excluding S and R
