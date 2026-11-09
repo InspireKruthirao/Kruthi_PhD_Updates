@@ -1,4 +1,11 @@
 #!/bin/bash
+#PBS -N prodigal_US
+#PBS -P DFAZCB7230
+#PBS -J 1-58
+#PBS -l select=1:ncpus=1:mem=8gb
+#PBS -l walltime=12:00:00
+#PBS -q cpu_batch_exec
+#PBS -j oe
 
 # Load conda and activate environment
 source ~/miniconda3/bin/activate
