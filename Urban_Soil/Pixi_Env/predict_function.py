@@ -37,7 +37,9 @@ import polars as pl
 
 SR = ("S", "R")
 NO_CALL = ["NO_EVIDENCE", "UNRESOLVED", "LOW_CONFIDENCE", "TOO_FEW_OCCURRENCES"]
-TIERS = (("VERY_HIGH", 50), ("HIGH", 40), ("MEDIUM", 30), ("LOW", 0))
+# groups by the winner's share of the vote (how strongly the neighbours agree,
+# not how often the guess is right): name, lowest share in %
+TIERS = (("vote >=50%", 50), ("vote 40-50%", 40), ("vote 30-40%", 30), ("vote <30%", 0))
 TIE_TOLERANCE = 1e-9
 PCT_TOLERANCE = 1e-9  # 50% may come out as 49.99999999999999
 SIM_TOLERANCE = 1e-6  # similarity 0 may come out as 3e-08 (Annoy rounds)
