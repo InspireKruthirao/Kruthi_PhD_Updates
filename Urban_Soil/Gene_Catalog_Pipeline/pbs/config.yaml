@@ -1,0 +1,15 @@
+# Snakemake profile: every step is submitted as its own PBS job.
+executor: cluster-generic
+cluster-generic-submit-cmd: >-
+  qsub -V -N smk.{rule} -P DFAZCB7230 -q cpu_batch_exec -j oe -o logs/
+  -l select=1:ncpus={threads}:mem={resources.mem_gb}gb
+  -l walltime={resources.walltime}
+cluster-generic-status-cmd: pbs/status.sh
+cluster-generic-cancel-cmd: qdel
+jobs: 60                 # max PBS jobs at once
+latency-wait: 120        # shared file system delay
+rerun-incomplete: true   # redo steps that were interrupted
+keep-going: true         # independent steps continue if one fails
+printshellcmds: true
+resources:
+  eggnog_slots: 8        # at most 8 eggNOG jobs copy/use the 50 GB DB at once (HPC storage rule)

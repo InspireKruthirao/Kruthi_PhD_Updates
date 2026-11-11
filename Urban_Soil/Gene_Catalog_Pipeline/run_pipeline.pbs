@@ -1,0 +1,13 @@
+#!/bin/bash
+#PBS -N gene_catalog
+#PBS -P DFAZCB7230
+#PBS -q cpu_batch_exec
+#PBS -l select=1:ncpus=1:mem=4gb
+#PBS -l walltime=96:00:00
+#PBS -j oe
+#PBS -o logs/
+# Runs Snakemake, which submits every step as its own PBS job and waits for it.
+# Submit from this folder:  qsub -v CONFIG=config/urban_soil.yaml run_pipeline.pbs
+set -euo pipefail
+cd "$PBS_O_WORKDIR"
+~/.pixi/bin/snakemake --profile pbs --configfile "${CONFIG:-config/urban_soil.yaml}"

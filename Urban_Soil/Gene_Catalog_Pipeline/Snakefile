@@ -1,0 +1,207 @@
+# Gene catalogue: Prodigal -> ORF catalogue -> 100NT (linclust) -> 95NT (cluster) -> eggNOG.
+# Run:  snakemake --profile pbs --configfile config/urban_soil.yaml
+import os
+
+OUT, P, NAME = config["outdir"], config["prefix"], config["name"]
+TMP = f"{OUT}/tmp"
+PY = f"python3 {workflow.basedir}/scripts"
+AWK = f"awk -f {workflow.basedir}/scripts/rename_fasta.awk"
+
+# Samples from the assembly list (sample = file name without the suffix)
+ASSEMBLY = {}
+for line in open(config["assembly_list"]):
+    path = line.strip()
+    if not path:
+        continue
+    name = os.path.basename(path)
+    if not name.endswith(config["assembly_suffix"]):
+        raise ValueError(f"{name} does not end with {config['assembly_suffix']}")
+    sample = name[: -len(config["assembly_suffix"])]
+    if sample in ASSEMBLY:
+        raise ValueError(f"duplicate sample {sample}")
+    ASSEMBLY[sample] = path
+SAMPLES = sorted(ASSEMBLY, key=lambda s: s + "/")  # same order as the original run
+
+ORFS = expand(f"{OUT}/prodigal/{{s}}/{{s}}_orfs.fna.gz", s=SAMPLES)
+ANNOT = expand(f"{OUT}/eggnog/{{s}}/{{s}}.emapper.annotations.gz", s=SAMPLES)
+
+
+def cpus(step):
+    return config["resources"][step][0]
+
+
+def res(step):
+    """PBS memory (GB) and walltime for a step, from the config."""
+    _, mem, wall = config["resources"][step]
+    return dict(mem_gb=mem, walltime=wall)
+
+
+shell.executable("bash")
+shell.prefix(f"set -euo pipefail; export PATH={config['env_bin']}:$PATH; ")
+wildcard_constraints:
+    s="[^/]+",
+localrules: all
+
+
+rule all:
+    input:
+        f"{OUT}/{NAME}.ORF.fna.xz",
+        f"{OUT}/{NAME}.ORF.orig.tsv.xz",
+        f"{OUT}/{P}.100NT.fna.xz",
+        f"{OUT}/{P}.100NT.matches.xz",
+        f"{OUT}/{P}.95NT.fna.xz",
+        f"{OUT}/{P}.95NT.matches.tsv.xz",
+        f"{OUT}/{P}.clusters.tsv.xz",
+        f"{OUT}/{P}.95NT.emapper.annotations.gz",
+
+
+rule prodigal:
+    input: lambda w: ASSEMBLY[w.s]
+    output:
+        gbk=f"{OUT}/prodigal/{{s}}/{{s}}_coords.gbk.gz",
+        fna=f"{OUT}/prodigal/{{s}}/{{s}}_orfs.fna.gz",
+        faa=f"{OUT}/prodigal/{{s}}/{{s}}_proteins.faa.gz",
+    threads: cpus("prodigal")
+    resources: **res("prodigal")
+    shell:
+        """
+        tmp=$(mktemp -d ${{TMPDIR:-/tmp}}/prodigal.XXXXXX); trap 'rm -rf $tmp' EXIT
+        pigz -dc {input} > $tmp/in.fna
+        prodigal -q -p meta -i $tmp/in.fna -o $tmp/c.gbk -d $tmp/o.fna -a $tmp/p.faa
+        test -s $tmp/o.fna || {{ echo "CHECK FAILED: no ORFs predicted"; exit 1; }}
+        pigz -p {threads} -c $tmp/c.gbk > {output.gbk}
+        pigz -p {threads} -c $tmp/o.fna > {output.fna}
+        pigz -p {threads} -c $tmp/p.faa > {output.faa}
+        """
+
+
+rule orf_catalog:
+    input: ORFS
+    output:
+        fna=temp(f"{TMP}/{NAME}.ORF.fna"),
+        fna_xz=f"{OUT}/{NAME}.ORF.fna.xz",
+        orig_xz=f"{OUT}/{NAME}.ORF.orig.tsv.xz",
+        orig=temp(f"{TMP}/{NAME}.ORF.orig.parquet"),
+    threads: cpus("orf_catalog")
+    resources: **res("orf_catalog")
+    params: samples=" ".join(SAMPLES)
+    shell:
+        "{PY}/orf_catalog.py --prefix {P} --samples {params.samples} --orfs {input} --fna {output.fna}"
+        " --fna-xz {output.fna_xz} --orig-xz {output.orig_xz} --orig-parquet {output.orig} --threads {threads}"
+
+
+rule linclust_100nt:
+    input: rules.orf_catalog.output.fna
+    output:
+        rep=temp(f"{TMP}/mmseqs100/{P}.100NT_rep_seq.fasta"),
+        tsv=temp(f"{TMP}/mmseqs100/{P}.100NT_cluster.tsv"),
+    threads: cpus("linclust_100nt")
+    resources: **res("linclust_100nt")
+    params: pre=f"{TMP}/mmseqs100/{P}.100NT", tmp=f"{TMP}/mmseqs100/tmp", split=lambda w, resources: f"{int(resources.mem_gb * 0.85)}G"
+    shell:
+        """
+        rm -rf {params.tmp}
+        {config[mmseqs_100nt]} easy-linclust {input} {params.pre} {params.tmp} \
+            --min-seq-id 1.0 -c 1.0 --cov-mode 0 --threads {threads} --split-memory-limit {params.split}
+        rm -rf {params.tmp} {params.pre}_all_seqs.fasta
+        """
+
+
+rule catalog_100nt:
+    input: rep=rules.linclust_100nt.output.rep, tsv=rules.linclust_100nt.output.tsv, orig=rules.orf_catalog.output.orig
+    output:
+        fna=temp(f"{TMP}/{P}.100NT.fna"),
+        fna_xz=f"{OUT}/{P}.100NT.fna.xz",
+        matches=f"{OUT}/{P}.100NT.matches.xz",
+        ids=temp(f"{TMP}/{P}.100NT.rep_ids"),
+        table=temp(f"{TMP}/{P}.100NT.parquet"),
+    threads: cpus("catalog_100nt")
+    resources: **res("catalog_100nt")
+    shell:
+        """
+        {AWK} -v p={P}.100NT -v keep=1 -v ids={output.ids} {input.rep} | tee {output.fna} | xz -T{threads} > {output.fna_xz}
+        {PY}/catalog_100nt.py --prefix {P} --rep-ids {output.ids} --clusters {input.tsv} --orig {input.orig} \
+            --matches {output.matches} --table {output.table} --threads {threads}
+        """
+
+
+rule cluster_95nt:
+    input: rules.catalog_100nt.output.fna
+    output:
+        rep=temp(f"{TMP}/mmseqs95/{P}.95NT_rep_seq.fasta"),
+        tsv=temp(f"{TMP}/mmseqs95/{P}.95NT_cluster.tsv"),
+    threads: cpus("cluster_95nt")
+    resources: **res("cluster_95nt")
+    params: pre=f"{TMP}/mmseqs95/{P}.95NT", tmp=f"{TMP}/mmseqs95/tmp", split=lambda w, resources: f"{int(resources.mem_gb * 0.85)}G"
+    shell:
+        """
+        rm -rf {params.tmp}
+        {config[mmseqs_95nt]} easy-cluster {input} {params.pre} {params.tmp} \
+            --min-seq-id 0.95 -c 0.9 --cov-mode 0 --threads {threads} --split-memory-limit {params.split}
+        rm -rf {params.tmp} {params.pre}_all_seqs.fasta
+        """
+
+
+rule catalog_95nt:
+    input: rep=rules.cluster_95nt.output.rep, tsv=rules.cluster_95nt.output.tsv, table=rules.catalog_100nt.output.table
+    output:
+        fna_xz=f"{OUT}/{P}.95NT.fna.xz",
+        matches=f"{OUT}/{P}.95NT.matches.tsv.xz",
+        clusters=f"{OUT}/{P}.clusters.tsv.xz",
+        ids=temp(f"{TMP}/{P}.95NT.rep_ids"),
+        canonical=temp(f"{TMP}/{P}.95NT.canonical.parquet"),
+    threads: cpus("catalog_95nt")
+    resources: **res("catalog_95nt")
+    shell:
+        """
+        {AWK} -v p={P}.95NT -v keep=0 -v ids={output.ids} {input.rep} | xz -T{threads} > {output.fna_xz}
+        {PY}/catalog_95nt.py --prefix {P} --rep-ids {output.ids} --clusters {input.tsv} --table100 {input.table} \
+            --matches {output.matches} --cluster-table {output.clusters} --canonical {output.canonical} --threads {threads}
+        """
+
+
+rule eggnog:
+    input: f"{OUT}/prodigal/{{s}}/{{s}}_proteins.faa.gz"
+    output:
+        ann=f"{OUT}/eggnog/{{s}}/{{s}}.emapper.annotations.gz",
+        hits=f"{OUT}/eggnog/{{s}}/{{s}}.emapper.hits.gz",
+        seeds=f"{OUT}/eggnog/{{s}}/{{s}}.emapper.seed_orthologs.gz",
+    threads: cpus("eggnog")
+    resources: **res("eggnog"), eggnog_slots=1  # limits how many copy the DB at once (see pbs/config.yaml)
+    shell:
+        """
+        # HPC rule: never read the eggNOG DB from /work; copy it to local ${{TMPDIR}} first
+        : "${{TMPDIR:?CHECK FAILED: TMPDIR is not set}}"
+        tmp=$(mktemp -d $TMPDIR/emapper.XXXXXX); trap 'rm -rf $tmp' EXIT
+        db=$TMPDIR/eggnog_db  # copied once per node job, reused if already there
+        (
+            flock 9
+            [[ -e $db/.done ]] || {{
+                echo "$(date) copying eggNOG DB to $db"
+                mkdir -p $db
+                cp {config[eggnog_db]}/{{eggnog.db,eggnog.taxa.db,eggnog.taxa.db.traverse.pkl,eggnog_proteins.dmnd}} $db/
+                touch $db/.done
+            }}
+        ) 9> $TMPDIR/eggnog_db.lock
+        pigz -dc {input} > $tmp/in.faa
+        export PATH={config[eggnog_bin]}:$PATH
+        echo "$(date) running emapper"
+        emapper.py -m diamond --itype proteins --cpu {threads} --dbmem --data_dir $db \
+            -i $tmp/in.faa --output {wildcards.s} --output_dir $tmp --temp_dir $tmp --override
+        echo "$(date) emapper finished"
+        test -s $tmp/{wildcards.s}.emapper.annotations || {{ echo "CHECK FAILED: no eggNOG annotations"; exit 1; }}
+        pigz -p {threads} -c $tmp/{wildcards.s}.emapper.annotations > {output.ann}
+        pigz -p {threads} -c $tmp/{wildcards.s}.emapper.hits > {output.hits}
+        pigz -p {threads} -c $tmp/{wildcards.s}.emapper.seed_orthologs > {output.seeds}
+        """
+
+
+rule eggnog_transfer:
+    input: ann=ANNOT, orig=rules.orf_catalog.output.orig, canonical=rules.catalog_95nt.output.canonical
+    output: f"{OUT}/{P}.95NT.emapper.annotations.gz"
+    threads: cpus("eggnog_transfer")
+    resources: **res("eggnog_transfer")
+    params: samples=" ".join(SAMPLES)
+    shell:
+        "{PY}/eggnog_transfer.py --prefix {P} --orig {input.orig} --canonical {input.canonical}"
+        " --samples {params.samples} --annotations {input.ann} --out {output} --threads {threads}"

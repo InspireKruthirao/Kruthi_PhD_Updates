@@ -1,0 +1,27 @@
+# Urban Soil gene catalogue. For a new dataset: copy this file and edit it.
+
+name: UrbanSoil          # ORF files: UrbanSoil.ORF.fna.xz, UrbanSoil.ORF.orig.tsv.xz
+prefix: US               # IDs: US.ORF.*, US.100NT.*, US.95NT.*
+
+assembly_list: /work/microbiome/users/kruthi/intermediate_results/urban_soil/assembly_list.txt
+assembly_suffix: _medaka_polypolish.fasta.PolcaCorrected.fa.gz   # removed to get the sample name
+
+outdir: /work/microbiome/users/kruthi/intermediate_results/urban_soil/Gene_Catalog_v2
+
+# Software
+env_bin: /home/n12228516/.conda/envs/kruthi/bin            # python/polars, prodigal, seqkit, mmseqs
+eggnog_bin: /home/n12228516/.conda/envs/eggnog212/bin      # emapper.py, diamond
+eggnog_db: /work/microbiome/users/kruthi/intermediate_results/egg_nog/databases
+mmseqs_100nt: /home/n12228516/.conda/envs/kruthi/bin/mmseqs  # same binaries as the original run
+mmseqs_95nt: /work/microbiome/users/kruthi/intermediate_results/urban_soil/Prodigal/mmseqs_64bit/mmseqs/bin/mmseqs
+
+# PBS resources per step: [cpus, memory GB, walltime]. Based on the original runs.
+resources:
+  prodigal:        [2,   4,    "12:00:00"]
+  orf_catalog:     [32,  64,   "08:00:00"]
+  linclust_100nt:  [100, 700,  "10:00:00"]   # took 4.3 h, 631 GB
+  catalog_100nt:   [32,  96,   "06:00:00"]
+  cluster_95nt:    [100, 1200, "36:00:00"]   # took ~20 h
+  catalog_95nt:    [32,  128,  "08:00:00"]
+  eggnog:          [32,  128,  "12:00:00"]   # was 19 h/sample; DB copied to TMPDIR, --dbmem keeps it in RAM
+  eggnog_transfer: [16,  192,  "06:00:00"]
