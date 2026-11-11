@@ -17,15 +17,18 @@ eggNOG runs per sample at the same time as the MMseqs2 steps.
 Per-sample Prodigal and eggNOG files are kept in `prodigal/` and `eggnog/`. Large intermediate files go to `tmp/` and are deleted automatically.
 
 ## Run
+Run on the login node inside `tmux` (Snakemake itself is light; every step runs as its own PBS job):
 ```bash
 cd Gene_Catalog_Pipeline
 ~/.pixi/bin/snakemake --profile pbs --configfile config/urban_soil.yaml -n   # dry run: list the steps
-qsub -v CONFIG=config/urban_soil.yaml run_pipeline.pbs                    # real run
+tmux new -s catalog
+~/.pixi/bin/snakemake --profile pbs --configfile config/urban_soil.yaml      # real run
+# detach: Ctrl+B then D   |   reattach (same login node): tmux attach -t catalog
 ```
-Job logs go to `logs/`. If a step fails, fix the cause and submit again: finished steps are skipped.
+Progress: `qstat -u $USER`. Job logs go to `logs/`. If a step fails, fix the cause and run the same command again: finished steps are skipped.
 
 ## New dataset
-Copy `config/urban_soil.yaml`, change `name`, `prefix`, `assembly_list`, `assembly_suffix`, `outdir`, and submit with `CONFIG=` pointing to the new file. CPUs, memory and walltime per step are set in the same file.
+Copy `config/urban_soil.yaml`, change `name`, `prefix`, `assembly_list`, `assembly_suffix`, `outdir`, and run with `--configfile` pointing to the new file. CPUs, memory and walltime per step are set in the same file.
 
 ## HPC storage rule
 eggNOG jobs copy the eggNOG database to `${TMPDIR}` and read it only from there, and at most 8 run at once (`eggnog_slots` in `pbs/config.yaml`). Never point eggNOG at the database on `/work` directly.
