@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Predict the COG category of every smORF from its neighbour genes with 244
+Predict the COG category of every smORF from its neighbour genes with 260
 rules, and score each rule on the smORFs whose category is known.
 
     python3 predict_function.py smorf_neighbourhoods.sqlite           show the results
@@ -426,13 +426,35 @@ def conserved(d, n=3, exclude=(), min_frac=None):
     return pred, pct
 
 
-def sandwiched(d, exclude=(), min_genomes=1, min_frac=None, same_strand=False, max_dist=None):
+def same_cog_id_occurrences(d):
+    """Per occurrence: are the two closest genes (rank 1, one per side)
+    in the same COG (same non-empty COG ID, e.g. COG0094)?"""
+    nb = d.nb
+    first = run_starts(nb["ent"])  # one entry per gene
+    r1 = first[nb["rank"][first] == 1]
+    occ = nb["occ"][r1].astype(np.int64)
+    cog = d.info["cog"].gather(nb["ent"][r1]).to_numpy()
+    order = np.argsort(occ, kind="stable")
+    occ, cog = occ[order], cog[order]
+    starts = run_starts(occ)
+    two = starts[np.diff(np.r_[starts, len(occ)]) == 2]  # occurrences with a rank-1 gene on both sides
+    good = occ[two][(cog[two] == cog[two + 1]) & (cog[two] != "")]
+    ok = np.zeros(len(d.occ_smorf), dtype=bool)
+    ok[good] = True
+    return ok
+
+
+def sandwiched(d, exclude=(), min_genomes=1, min_frac=None, same_strand=False, max_dist=None,
+               same_cog_id=False, tiebreak=None):
     """Closest gene on both sides shares a category, in >= min_genomes
     occurrences (and >= min_frac of them). Optionally both genes on the
-    target's strand and/or within max_dist bp."""
+    target's strand and/or within max_dist bp, and/or in the same COG
+    (same_cog_id: same COG ID, not only the same letter). tiebreak="closest":
+    if categories tie, the one whose sandwiching genes are closer on
+    average wins (still no prediction if that ties too)."""
     nb = d.nb
     keep = (nb["rank"] == 1) & ~d.excluded(nb["code"], exclude)
-    if same_strand or max_dist is not None:
+    if same_strand or max_dist is not None or same_cog_id or tiebreak:
         if d.info is None:
             return nothing(d)
         ok = np.ones(len(d.info["occ"]), dtype=bool)
@@ -441,14 +463,32 @@ def sandwiched(d, exclude=(), min_genomes=1, min_frac=None, same_strand=False, m
         if max_dist is not None:
             ok &= d.info["dist"] <= max_dist
         keep &= ok[nb["ent"]]
-    pair, k = np.unique(nb["occ"][keep].astype(np.int64) * d.n_cats + nb["code"][keep],
-                        return_counts=True)
+        if same_cog_id:
+            keep &= same_cog_id_occurrences(d)[nb["occ"]]
+    pair, inverse, k = np.unique(nb["occ"][keep].astype(np.int64) * d.n_cats + nb["code"][keep],
+                                 return_inverse=True, return_counts=True)
     both = pair[k >= 2]  # on both rank-1 genes
     key = d.occ_smorf[both // d.n_cats].astype(np.int64) * d.n_cats + both % d.n_cats
     n_smorfs = d.smorfs.height
     count = np.bincount(key, minlength=n_smorfs * d.n_cats).reshape(n_smorfs, d.n_cats)
     n_occ = np.bincount(d.occ_smorf, minlength=n_smorfs)
-    pred, col = top_of(d, count, count >= max(min_genomes, 1))
+    eligible = count >= max(min_genomes, 1)
+    pred, col = top_of(d, count, eligible)
+    if tiebreak == "closest":
+        # mean distance of the sandwiching genes, per smORF x category
+        dist = np.bincount(inverse, weights=d.info["dist"][nb["ent"][keep]].astype(float), minlength=len(pair))
+        total = np.bincount(key, weights=dist[k >= 2], minlength=n_smorfs * d.n_cats).reshape(n_smorfs, d.n_cats)
+        mean = np.divide(total, 2 * count, out=np.full(total.shape, np.inf), where=count > 0)
+        tied = pred == d.code("UNRESOLVED")
+        top = np.where(eligible, count, -1).max(axis=1)
+        cand = eligible & (count == top[:, None]) & tied[:, None]
+        m = np.where(cand, mean, np.inf)
+        best = m.min(axis=1)
+        close = np.isfinite(m) & (np.abs(m - np.where(np.isfinite(best), best, 0.0)[:, None]) < TIE_TOLERANCE)
+        unique = close.sum(axis=1) == 1
+        fix = tied & unique & np.isfinite(best)
+        col = np.where(fix, m.argmin(axis=1), col)
+        pred = np.where(fix, col, pred)
     frac = count[np.arange(n_smorfs), col] / np.maximum(n_occ, 1)
     if min_frac:
         pred = np.where((pred < d.n_cats) & (frac < min_frac - PCT_TOLERANCE), d.code("NO_EVIDENCE"), pred)
@@ -526,6 +566,17 @@ def side_vote(d, where, curve="linear", n=5, exclude=()):
         return nothing(d)
     gene_ok = {"up": d.info["side"] == 0, "down": d.info["side"] == 1,
                "same_strand": d.info["same"] == 1}[where]
+    return vote_where(d, gene_ok, rank_weight(d, curve), n, exclude)
+
+
+def close_vote(d, side="down", max_dist=100, curve="linear", n=5, exclude=()):
+    """Only genes on one side ("up"/"down"), on the target's strand and
+    within max_dist bp of it vote (the settings that helped most when rules
+    were compared one setting at a time)."""
+    if d.info is None:
+        return nothing(d)
+    gene_ok = ((d.info["side"] == (1 if side == "down" else 0)) & (d.info["same"] == 1)
+               & (d.info["dist"] <= max_dist))
     return vote_where(d, gene_ok, rank_weight(d, curve), n, exclude)
 
 
@@ -1150,6 +1201,46 @@ def build_combinations(d):
             add("AE. Random forest", f"random forest on COG letters, strand and distance of 5 genes per side "
                 f"(each half predicted by a model trained on the other half){need}, {cname}",
                 random_forest, exclude=ex, cutoff=cut)
+
+    # AF. random forest and the strict sandwiched rule (C171/C172) agree (2)
+    for cname, ex in cats_opts:
+        add("AF. Random forest + sandwiched agree", f"random forest and 'closest gene on both sides has the "
+            f"same category, both on the target's strand and within 100 bp, in at least 2 genomes' predict the "
+            f"same category, {cname}", agree, exclude=ex,
+            first=(random_forest, dict(exclude=ex)),
+            second=(sandwiched, dict(exclude=ex, min_genomes=2, same_strand=True, max_dist=100)))
+
+    # AG. random forest, stricter confidence cutoffs (6)
+    for cut in (70, 80, 90):
+        for cname, ex in cats_opts:
+            add("AG. Random forest (strict)", f"random forest on COG letters, strand and distance of 5 genes per "
+                f"side (each half predicted by a model trained on the other half), predict only if confidence "
+                f">= {cut}%, {cname}", random_forest, exclude=ex, cutoff=cut)
+
+    # AH. sandwiched by the same COG ID, not only the same letter (2)
+    for cname, ex in cats_opts:
+        add("AH. Sandwiched (same COG ID)", f"closest gene on both sides in the same COG (same COG ID), both "
+            f"on the target's strand and within 100 bp, in at least 2 genomes, {cname}", sandwiched,
+            exclude=ex, min_genomes=2, same_strand=True, max_dist=100, same_cog_id=True)
+
+    # AI. downstream genes only, same strand, within 100 bp (2)
+    for cname, ex in cats_opts:
+        add("AI. Downstream, same strand, close", f"linear weights, 5 neighbours, only downstream genes on the "
+            f"target's strand within 100 bp vote, {cname}", close_vote, side="down", max_dist=100,
+            curve="linear", n=5, exclude=ex)
+
+    # AJ. sandwiched with a tie-break (2)
+    for cname, ex in cats_opts:
+        add("AJ. Sandwiched (tie-break)", f"closest gene on both sides has the same category, both on the "
+            f"target's strand and within 100 bp, in at least 2 genomes; ties go to the category whose genes "
+            f"are closer, {cname}", sandwiched, exclude=ex, min_genomes=2, same_strand=True, max_dist=100,
+            tiebreak="closest")
+
+    # AK. sandwiched, very close (2)
+    for cname, ex in cats_opts:
+        add("AK. Sandwiched (very close)", f"closest gene on both sides has the same category, both on the "
+            f"target's strand and within 50 bp, in at least 2 genomes, {cname}", sandwiched, exclude=ex,
+            min_genomes=2, same_strand=True, max_dist=50)
     return combos
 
 
