@@ -13,6 +13,7 @@ python-annoy = ">=1.17.3,<2"
 matplotlib-base = ">=3.9"
 zstd = ">=1.5"
 scikit-learn = ">=1.5"
+faiss-cpu = ">=1.9"
 
 [tasks]
 predict = "python predict_function.py"

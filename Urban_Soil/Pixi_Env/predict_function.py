@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Predict the COG category of every smORF from its neighbour genes with 260
+Predict the COG category of every smORF from its neighbour genes with 268
 rules, and score each rule on the smORFs whose category is known.
 
     python3 predict_function.py smorf_neighbourhoods.sqlite           show the results
@@ -792,6 +792,30 @@ def nearest(d, engine, k, max_rank, dims, vectors="cog_ids", **opts):
         w = min(m, got.shape[1])
         nn[:, :w], dist[:, :w] = got[:, :w], s[:, :w]
         sim = dist  # already cosine
+    elif engine == "faiss":
+        # the same exact search as "exact", with FAISS (Meta's similarity-search
+        # library): inner product of the normalised vectors = cosine similarity
+        try:
+            import faiss
+        except ImportError:
+            print("  (faiss not installed: the FAISS rules predict nothing)", flush=True)
+            return None
+        ikey = ("faiss search", max_rank, dims, vectors)  # once for the largest k used (25), then cut
+        if ikey not in d.cache or d.cache[ikey][0].shape[1] < m:
+            if len(who):
+                faiss.omp_set_num_threads(cpus())
+                xs = np.ascontiguousarray(x[who], dtype=np.float32)
+                faiss.normalize_L2(xs)
+                index = faiss.IndexFlatIP(xs.shape[1])
+                index.add(xs)
+                s, got = index.search(xs, min(max(m, 26), len(who)))
+                d.cache[ikey] = (np.where(got >= 0, who[np.maximum(got, 0)], -1), s.astype(np.float64))
+            else:
+                d.cache[ikey] = (nn, dist)
+        got, s = d.cache[ikey]
+        w = min(m, got.shape[1])
+        nn[:, :w], dist[:, :w] = got[:, :w], s[:, :w]
+        sim = dist  # already cosine
     else:
         raise ValueError(f"unknown search engine: {engine}")
     d.cache[key] = (who, nn, np.where(nn >= 0, sim, 0.0))
@@ -1241,6 +1265,18 @@ def build_combinations(d):
         add("AK. Sandwiched (very close)", f"closest gene on both sides has the same category, both on the "
             f"target's strand and within 50 bp, in at least 2 genomes, {cname}", sandwiched, exclude=ex,
             min_genomes=2, same_strand=True, max_dist=50)
+
+    # AL. the exact searches of AC/AD (C229-C236) done with FAISS, to compare speed and results (8)
+    for k in (10, 25):
+        for cname, ex in cats_opts:
+            add("AL. FAISS nearest neighbours", f"the {k} smORFs with the most similar neighbourhoods "
+                f"(COG IDs within 3 genes, exact search with FAISS) vote, {cname}", similar_vote,
+                engine="faiss", k=k, exclude=ex)
+    for k in (10, 25):
+        for cname, ex in cats_opts:
+            add("AL. FAISS nearest neighbours", f"the {k} smORFs with the most similar COG letters "
+                f"(5 genes per side, linear weights, up/downstream kept apart, exact search with FAISS) vote, "
+                f"{cname}", similar_vote, engine="faiss", k=k, exclude=ex, vectors="letters")
     return combos
 
 
