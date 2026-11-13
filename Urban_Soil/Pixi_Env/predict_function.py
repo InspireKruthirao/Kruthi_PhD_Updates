@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Predict the COG category of every smORF from its neighbour genes with 268
+Predict the COG category of every smORF from its neighbour genes with 310
 rules, and score each rule on the smORFs whose category is known.
 
     python3 predict_function.py smorf_neighbourhoods.sqlite           show the results
@@ -949,13 +949,17 @@ def forest_probabilities(model, x, n_cats, rows=None):
     return p
 
 
-def random_forest(d, exclude=(), cutoff=None):
+FOREST_DROP = {"strand": ("_same_strand",), "distance": ("_log_distance", "_overlaps")}
+
+
+def random_forest(d, exclude=(), cutoff=None, drop=()):
     """Random forest on ml_features. Each annotated smORF is predicted by a
     model trained on the OTHER half (the TRAIN/TEST halves of cascade.py), so
     its accuracy is not inflated; smORFs without a known category by a model
     trained on all annotated smORFs. Winner's % = the forest's confidence.
-    cutoff: predict only if the confidence is >= cutoff %."""
-    key = ("forest", tuple(exclude))
+    cutoff: predict only if the confidence is >= cutoff %.
+    drop: leave out "strand" and/or "distance" (log distance and overlap) features."""
+    key = ("forest", tuple(exclude), tuple(drop))
     if key not in d.cache:
         try:
             import sklearn  # noqa: F401
@@ -963,6 +967,9 @@ def random_forest(d, exclude=(), cutoff=None):
             print("  (scikit-learn not installed: the random forest rules predict nothing)", flush=True)
             return nothing(d)
         x = ml_features(d)
+        if drop:
+            gone = sum((FOREST_DROP[f] for f in drop), ())
+            x = x[:, [i for i, n in enumerate(feature_names(d)) if not n.endswith(gone)]]
         k = known_matrix(d, exclude)
         a, b = halves(d)
         rest = np.flatnonzero(~d.smorfs["annotated"].to_numpy())
@@ -1277,6 +1284,17 @@ def build_combinations(d):
             add("AL. FAISS nearest neighbours", f"the {k} smORFs with the most similar COG letters "
                 f"(5 genes per side, linear weights, up/downstream kept apart, exact search with FAISS) vote, "
                 f"{cname}", similar_vote, engine="faiss", k=k, exclude=ex, vectors="letters")
+
+    # AM. random forest without strand and/or distance, to see what each adds (42)
+    for drop, used in ((("strand",), "COG letters and distance (no strand)"),
+                       (("distance",), "COG letters and strand (no distance)"),
+                       (("strand", "distance"), "COG letters only (no strand, no distance)")):
+        for cut in (None, 40, 50, 60, 70, 80, 90):
+            for cname, ex in cats_opts:
+                need = f", predict only if confidence >= {cut}%" if cut else ""
+                add("AM. Random forest (fewer features)", f"random forest on {used} of 5 genes per side "
+                    f"(each half predicted by a model trained on the other half){need}, {cname}",
+                    random_forest, exclude=ex, cutoff=cut, drop=drop)
     return combos
 
 
