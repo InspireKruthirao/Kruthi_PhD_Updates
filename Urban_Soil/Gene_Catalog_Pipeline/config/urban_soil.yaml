@@ -24,4 +24,4 @@ resources:
   cluster_95nt:    [100, 1200, "36:00:00"]   # took ~20 h
   catalog_95nt:    [32,  128,  "08:00:00"]
   eggnog:          [32,  128,  "12:00:00"]   # was 19 h/sample; DB copied to TMPDIR, --dbmem keeps it in RAM
-  eggnog_transfer: [16,  192,  "06:00:00"]
+  eggnog_transfer: [16,  192,  "06:00:00"]   # killed at 192 GB; Snakefile retries 2x, doubling memory (384, 768 GB)

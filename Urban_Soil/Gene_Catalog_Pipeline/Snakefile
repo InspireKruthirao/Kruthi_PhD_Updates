@@ -31,9 +31,11 @@ def cpus(step):
 
 
 def res(step):
-    """PBS memory (GB) and walltime for a step, from the config."""
+    """PBS memory (GB) and walltime for a step, from the config.
+    Memory doubles on each retry (attempt 1 = config value), so a rule with
+    `retries:` gets more RAM after an out-of-memory kill."""
     _, mem, wall = config["resources"][step]
-    return dict(mem_gb=mem, walltime=wall)
+    return dict(mem_gb=lambda wildcards, attempt: mem * 2 ** (attempt - 1), walltime=wall)
 
 
 shell.executable("bash")
@@ -201,6 +203,7 @@ rule eggnog_transfer:
     output: f"{OUT}/{P}.95NT.emapper.annotations.gz"
     threads: cpus("eggnog_transfer")
     resources: **res("eggnog_transfer")
+    retries: 2   # out-of-memory at 192 GB: retry at 384 GB, then 768 GB
     params: samples=" ".join(SAMPLES)
     shell:
         "{PY}/eggnog_transfer.py --prefix {P} --orig {input.orig} --canonical {input.canonical}"
