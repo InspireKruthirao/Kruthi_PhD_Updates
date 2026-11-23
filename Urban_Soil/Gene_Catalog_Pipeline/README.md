@@ -35,3 +35,13 @@ eggNOG jobs copy the eggNOG database to `${TMPDIR}` and read it only from there,
 
 ## Checks
 Every step stops with `CHECK FAILED: ...` if something does not add up, for example: ORF counts, every ORF placed in exactly one cluster, each representative present once, matching eggNOG headers, or one annotation per 95NT.
+
+## Test run (`test/`)
+`test/test.yaml` runs the whole pipeline on 3 small assemblies inside one PBS job: `qsub test/test_job.pbs` (outputs go to `~/gc_test/out`).
+
+## Compare two catalogue runs (`compare/`)
+`compare/run_compare.sh` compares an old and a new catalogue (default: `Gene_Catalog_Urban_Soil` vs `Gene_Catalog_v2`). IDs are renumbered between runs, so it compares what the IDs stand for: ORF file checksums, DNA sequence sets (64-bit hashes), whether every ORF is grouped with the same ORFs at 100NT and 95NT, and the eggNOG columns per sequence. Run it as one job (about 16 CPUs, 300 GB):
+```bash
+mqsub -t 16 -m 300 --hours 24 -- bash compare/run_compare.sh   # OLD=, NEW=, OUT= override the folders
+```
+Writes `report.md` and `examples_*.tsv` to `OUT` (default `~/gc_compare`). Inside mqyolo jobs, use `/mnt/hpccs01/home/...` paths for anything written.

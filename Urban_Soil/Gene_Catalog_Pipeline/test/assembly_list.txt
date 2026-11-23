@@ -1,0 +1,3 @@
+/home/n12228516/gc_test/asm/cpsnj01_medaka_polypolish.fasta.PolcaCorrected.fa.gz
+/home/n12228516/gc_test/asm/s10_medaka_polypolish.fasta.PolcaCorrected.fa.gz
+/home/n12228516/gc_test/asm/s1_medaka_polypolish.fasta.PolcaCorrected.fa.gz

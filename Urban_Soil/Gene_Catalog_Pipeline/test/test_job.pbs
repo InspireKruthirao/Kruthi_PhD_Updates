@@ -1,0 +1,12 @@
+#!/bin/bash
+#PBS -N gc_test
+#PBS -P DFAZCB7230
+#PBS -q cpu_batch_exec
+#PBS -l select=1:ncpus=32:mem=180gb
+#PBS -l walltime=08:00:00
+#PBS -j oe
+#PBS -o /home/n12228516/gc_test/test_job.log
+# Whole pipeline on 3 tiny samples, run inside this one job (no extra PBS jobs).
+cd /home/n12228516/repos/Kruthi_PhD_Updates/Urban_Soil/Gene_Catalog_Pipeline
+df -h $TMPDIR | tail -1
+~/.pixi/bin/snakemake --cores 32 --configfile /home/n12228516/gc_test/test.yaml
