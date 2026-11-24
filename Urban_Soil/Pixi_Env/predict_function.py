@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Predict the COG category of every smORF from its neighbour genes with 310
+Predict the COG category of every smORF from its neighbour genes with 394
 rules, and score each rule on the smORFs whose category is known.
 
     python3 predict_function.py smorf_neighbourhoods.sqlite           show the results
@@ -978,12 +978,124 @@ def random_forest(d, exclude=(), cutoff=None, drop=()):
             if len(train) and len(predict):
                 prob += forest_probabilities(fit_forest(x, k, train), x, d.n_cats, predict)
         d.cache[key] = prob
-    prob = d.cache[key]
+    return from_probabilities(d, d.cache[key], cutoff)
+
+
+def from_probabilities(d, prob, cutoff=None):
+    """Prediction = the most probable category; winner's % = its probability.
+    cutoff: predict only if the probability is >= cutoff %."""
     conf = prob.max(axis=1)
     pred = np.where(conf > 0, prob.argmax(axis=1), d.code("NO_EVIDENCE"))
     if cutoff:
         pred = low_confidence(d, pred, conf * 100 < cutoff - PCT_TOLERANCE)
     return pred, conf * 100
+
+
+# ----------------------------------------------------- other ML models ----
+# Same features (ml_features), same TRAIN/TEST halves and same training rows
+# as the random forest, so their accuracy can be compared with it directly.
+
+ML_MODELS = {  # name used in the rules: text in the rule
+    "boosting":     "gradient boosting (HistGradientBoosting)",
+    "extra_trees":  "extra trees (more randomised random forest)",
+    "logistic":     "logistic regression",
+    "naive_bayes":  "naive Bayes (Gaussian)",
+    "knn":          "k-nearest neighbours (25 most similar smORFs, closer ones count more)",
+    "mlp":          "neural network (MLP, one hidden layer of 128)",
+}
+ENSEMBLE = ("forest", "boosting", "extra_trees", "logistic", "mlp")  # averaged by the ensemble rules
+
+
+def make_model(name):
+    """A new, untrained scikit-learn model. Models that depend on the scale of
+    the features (logistic, kNN, MLP) standardise them first."""
+    from sklearn.ensemble import ExtraTreesClassifier, HistGradientBoostingClassifier, RandomForestClassifier
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.naive_bayes import GaussianNB
+    from sklearn.neighbors import KNeighborsClassifier
+    from sklearn.neural_network import MLPClassifier
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+    n = cpus()
+    if name == "forest":
+        return RandomForestClassifier(n_estimators=300, min_samples_leaf=3, n_jobs=n, random_state=FOREST_SEED)
+    if name == "boosting":
+        return HistGradientBoostingClassifier(max_iter=300, learning_rate=0.1, early_stopping=True,
+                                              random_state=FOREST_SEED)
+    if name == "extra_trees":
+        return ExtraTreesClassifier(n_estimators=300, min_samples_leaf=3, n_jobs=n, random_state=FOREST_SEED)
+    if name == "logistic":
+        return make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, C=1.0))
+    if name == "naive_bayes":
+        return GaussianNB()
+    if name == "knn":
+        return make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25, weights="distance", n_jobs=n))
+    if name == "mlp":
+        return make_pipeline(StandardScaler(), MLPClassifier(hidden_layer_sizes=(128,), early_stopping=True,
+                                                             max_iter=200, random_state=FOREST_SEED))
+    raise ValueError(f"unknown model {name}")
+
+
+def fit_model(name, x, k, rows):
+    """As fit_forest, for any model in make_model: one training row per known
+    category, weight 1 / number of categories (kNN cannot take weights, so
+    each of its training rows counts once)."""
+    rows = rows[k[rows].any(axis=1) & x[rows].any(axis=1)]
+    r, c = np.nonzero(k[rows])
+    w = 1.0 / k[rows].sum(axis=1)[r]
+    model = make_model(name)
+    if name == "knn":
+        model.fit(x[rows[r]], c)
+    elif hasattr(model, "steps"):  # pipeline: the weight goes to its last step
+        model.fit(x[rows[r]], c, **{f"{model.steps[-1][0]}__sample_weight": w})
+    else:
+        model.fit(x[rows[r]], c, sample_weight=w)
+    return model
+
+
+def ml_probabilities(d, name, exclude=()):
+    """smORF x category probabilities from model `name`, predicted as in
+    random_forest: each annotated smORF by a model trained on the other half,
+    the rest by a model trained on all annotated smORFs. Cached."""
+    if name == "forest":
+        random_forest(d, exclude=exclude)
+        return d.cache[("forest", tuple(exclude), ())]
+    key = ("ml", name, tuple(exclude))
+    if key not in d.cache:
+        t = time.time()
+        x = ml_features(d)
+        k = known_matrix(d, exclude)
+        a, b = halves(d)
+        rest = np.flatnonzero(~d.smorfs["annotated"].to_numpy())
+        prob = np.zeros((d.smorfs.height, d.n_cats))
+        for train, pred in ((a, b), (b, a), (np.r_[a, b], rest)):
+            if len(train) and len(pred):
+                prob += forest_probabilities(fit_model(name, x, k, train), x, d.n_cats, pred)
+        d.cache[key] = prob
+        print(f"    ({name} trained 3 times in {time.time() - t:.1f}s)", flush=True)
+    return d.cache[key]
+
+
+def ml_model(d, model="boosting", exclude=(), cutoff=None):
+    """One of ML_MODELS, used like the random forest. Winner's % = the
+    model's probability for the predicted category."""
+    try:
+        import sklearn  # noqa: F401
+    except ImportError:
+        print("  (scikit-learn not installed: the ML rules predict nothing)", flush=True)
+        return nothing(d)
+    return from_probabilities(d, ml_probabilities(d, model, exclude), cutoff)
+
+
+def ml_ensemble(d, models=ENSEMBLE, exclude=(), cutoff=None):
+    """Average of the probabilities of several models"""
+    try:
+        import sklearn  # noqa: F401
+    except ImportError:
+        print("  (scikit-learn not installed: the ML rules predict nothing)", flush=True)
+        return nothing(d)
+    prob = np.mean([ml_probabilities(d, m, exclude) for m in models], axis=0)
+    return from_probabilities(d, prob, cutoff)
 
 
 # ------------------------------------------------------------- the rules ----
@@ -1295,6 +1407,24 @@ def build_combinations(d):
                 add("AM. Random forest (fewer features)", f"random forest on {used} of 5 genes per side "
                     f"(each half predicted by a model trained on the other half){need}, {cname}",
                     random_forest, exclude=ex, cutoff=cut, drop=drop)
+
+    # AN. other ML models, same features and halves as the random forest (72)
+    for model, text in ML_MODELS.items():
+        for cut in (None, 50, 60, 70, 80, 90):
+            for cname, ex in cats_opts:
+                need = f", predict only if confidence >= {cut}%" if cut else ""
+                add("AN. Other ML models", f"{text} on COG letters, strand and distance of 5 genes per side "
+                    f"(each half predicted by a model trained on the other half){need}, {cname}",
+                    ml_model, model=model, exclude=ex, cutoff=cut)
+
+    # AO. ensemble: the average of the random forest, gradient boosting, extra trees,
+    # logistic regression and neural network probabilities (12)
+    for cut in (None, 50, 60, 70, 80, 90):
+        for cname, ex in cats_opts:
+            need = f", predict only if confidence >= {cut}%" if cut else ""
+            add("AO. ML ensemble", f"average of random forest, gradient boosting, extra trees, logistic "
+                f"regression and neural network (each half predicted by models trained on the other half)"
+                f"{need}, {cname}", ml_ensemble, exclude=ex, cutoff=cut)
     return combos
 
 
