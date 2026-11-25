@@ -1,0 +1,222 @@
+# Supacow gene catalogue: the Urban_Soil/Gene_Catalog steps as one Snakemake
+# workflow, starting from MAGs. Run from the output directory, e.g.
+#   snakemake -s Snakefile --configfile config.yaml --directory <out_dir> --cores 32
+# (see run_pipeline.sh). All paths below are relative to out_dir.
+
+import os
+from pathlib import Path
+
+S = os.path.join(workflow.basedir, "scripts")
+PY = f"{config['env_bin']}/python3"
+P = config["prefix"]
+T = int(config["threads"])
+
+MAGS = sorted(p.name[:-len(".fasta")] for p in Path(config["mags_dir"]).glob("*.fasta"))
+if not MAGS:
+    raise ValueError(f"no *.fasta MAGs in {config['mags_dir']}")
+
+os.environ["PATH"] = f"{config['env_bin']}:" + os.environ["PATH"]  # xz for the scripts
+
+
+rule all:
+    input:
+        f"{P}.clusters.tsv.xz",
+        f"{P}.95NT.emapper.annotations.gz",
+        f"{P}.catalogue_summary.tsv",
+
+
+# 00. Prodigal on each MAG (single-genome mode: each MAG is one genome)
+rule prodigal:
+    input:
+        lambda w: f"{config['mags_dir']}/{w.mag}.fasta",
+    output:
+        fna="prodigal/{mag}/{mag}_orfs.fna",
+        faa="prodigal/{mag}/{mag}_proteins.faa",
+        gff="prodigal/{mag}/{mag}.gff",
+    log:
+        "logs/prodigal/{mag}.log",
+    threads: 1
+    shell:
+        "{config[env_bin]}/prodigal -i {input} -p single -d {output.fna} -a {output.faa} "
+        "-f gff -o {output.gff} -q > {log} 2>&1"
+
+
+# 01. all ORFs, with SC.ORF IDs
+rule orf_catalog:
+    input:
+        expand("prodigal/{mag}/{mag}_orfs.fna", mag=MAGS),
+        expand("prodigal/{mag}/{mag}_proteins.faa", mag=MAGS),
+    output:
+        fna=temp(f"work/{P}.ORF.fna"),
+        faa=f"{P}.ORF.faa.xz",
+        orig=f"{P}.ORF.orig.tsv.xz",
+    params:
+        n_mags=len(MAGS),
+    log:
+        "logs/01_orf_catalog.log",
+    shell:
+        "{PY} {S}/01_build_orf_catalog.py prodigal {params.n_mags} {P} {output.fna} {output.faa} {output.orig} > {log} 2>&1"
+
+
+rule compress_orf_fna:
+    input:
+        f"work/{P}.ORF.fna",
+    output:
+        f"{P}.ORF.fna.xz",
+    threads: T
+    shell:
+        "xz -T{threads} -c {input} > {output}.part && mv {output}.part {output}"
+
+
+# 02. exact dedup: 100% identity, 100% coverage
+rule mmseqs_100nt:
+    input:
+        f"work/{P}.ORF.fna",
+    output:
+        rep=temp(f"work/mmseqs100/{P}.mmseqs.100NT_rep_seq.fasta"),
+        tsv=temp(f"work/mmseqs100/{P}.mmseqs.100NT_cluster.tsv"),
+    params:
+        prefix=f"work/mmseqs100/{P}.mmseqs.100NT",
+    log:
+        "logs/02_mmseqs_100nt.log",
+    threads: T
+    shell:
+        "{config[mmseqs]} easy-linclust {input} {params.prefix} work/mmseqs100/tmp "
+        "--min-seq-id 1.0 -c 1.0 --cov-mode 0 --threads {threads} > {log} 2>&1 "
+        "&& rm -rf work/mmseqs100/tmp work/mmseqs100/*_all_seqs.fasta"
+
+
+# 03. 100NT catalogue
+rule catalog_100nt:
+    input:
+        rep=rules.mmseqs_100nt.output.rep,
+        tsv=rules.mmseqs_100nt.output.tsv,
+        orig=rules.orf_catalog.output.orig,
+    output:
+        fna=temp(f"work/{P}.100NT.fna"),
+        fna_xz=f"{P}.100NT.fna.xz",
+        matches=f"{P}.100NT.matches.xz",
+    log:
+        "logs/03_catalog_100nt.log",
+    threads: T
+    shell:
+        "{PY} {S}/03_catalog_100nt.py {input.rep} {input.tsv} {input.orig} {P} {threads} "
+        "{output.fna} {output.fna_xz} {output.matches} > {log} 2>&1"
+
+
+# 04. 95% identity, 90% coverage, on the 100NT representatives
+rule mmseqs_95nt:
+    input:
+        rules.catalog_100nt.output.fna,
+    output:
+        rep=temp(f"work/mmseqs95/{P}.mmseqs.95NT_rep_seq.fasta"),
+        tsv=temp(f"work/mmseqs95/{P}.mmseqs.95NT_cluster.tsv"),
+    params:
+        prefix=f"work/mmseqs95/{P}.mmseqs.95NT",
+    log:
+        "logs/04_mmseqs_95nt.log",
+    threads: T
+    shell:
+        "{config[mmseqs]} easy-cluster {input} {params.prefix} work/mmseqs95/tmp "
+        "--min-seq-id 0.95 -c 0.9 --cov-mode 0 --threads {threads} > {log} 2>&1 "
+        "&& rm -rf work/mmseqs95/tmp work/mmseqs95/*_all_seqs.fasta"
+
+
+# 05. 95NT catalogue
+rule catalog_95nt:
+    input:
+        rep=rules.mmseqs_95nt.output.rep,
+        tsv=rules.mmseqs_95nt.output.tsv,
+        fna100=rules.catalog_100nt.output.fna,
+    output:
+        fna=f"{P}.95NT.fna.xz",
+        matches=f"{P}.95NT.matches.tsv.xz",
+    log:
+        "logs/05_catalog_95nt.log",
+    threads: T
+    shell:
+        "{PY} {S}/05_catalog_95nt.py {input.rep} {input.tsv} {input.fna100} {P} {threads} "
+        "{output.fna} {output.matches} > {log} 2>&1"
+
+
+# 06. ORF -> 100NT -> 95NT
+rule cluster_table:
+    input:
+        m100=rules.catalog_100nt.output.matches,
+        m95=rules.catalog_95nt.output.matches,
+        orig=rules.orf_catalog.output.orig,
+    output:
+        f"{P}.clusters.tsv.xz",
+    log:
+        "logs/06_cluster_table.log",
+    threads: T
+    shell:
+        "{PY} {S}/06_cluster_table.py {input.m100} {input.m95} {input.orig} {threads} {output} > {log} 2>&1"
+
+
+# 07a. proteins of the 95NT representatives
+rule rep_proteins:
+    input:
+        fna95=rules.catalog_95nt.output.fna,
+        fna100=rules.catalog_100nt.output.fna,
+        faa=rules.orf_catalog.output.faa,
+    output:
+        f"{P}.95NT.faa.xz",
+    log:
+        "logs/07a_rep_proteins.log",
+    shell:
+        "{PY} {S}/07_rep_proteins.py {input.fna95} {input.fna100} {input.faa} {output} > {log} 2>&1"
+
+
+# 07. eggNOG-mapper 2.1.12 (diamond) on the 95NT representatives, once.
+# The database is copied to node-local $TMPDIR first (eResearch rule: never
+# read eggnog.db from /work during a job).
+rule eggnog:
+    input:
+        rules.rep_proteins.output,
+    output:
+        f"{P}.95NT.emapper.annotations.gz",
+    params:
+        out="eggnog",
+    log:
+        "logs/07_eggnog.log",
+    threads: T
+    shell:
+        r"""
+        set -euo pipefail
+        exec > {log} 2>&1
+        export PATH="{config[emapper_bin]}:$PATH"   # diamond
+        LOCAL="${{TMPDIR:-/tmp}}/sc_eggnog_$$"
+        mkdir -p "$LOCAL/db" "$LOCAL/tmp"
+        trap 'rm -rf "$LOCAL"' EXIT
+        need=$(du -sk {config[eggnog_db]} | cut -f1)
+        free=$(df -Pk "$LOCAL" | awk 'NR==2 {{print $4}}')
+        echo "eggNOG db needs ${{need}} kB, $LOCAL has ${{free}} kB free"
+        [ "$free" -gt $((need + 20000000)) ] || {{ echo "not enough local disk for the eggNOG db"; exit 1; }}
+        echo "copying db: $(date)"
+        cp -r {config[eggnog_db]}/. "$LOCAL/db/"
+        xz -dc {input} > "$LOCAL/proteins.faa"
+        mkdir -p {params.out}
+        echo "emapper start: $(date)"
+        {config[emapper_bin]}/python {config[emapper_bin]}/emapper.py -m diamond --itype proteins \
+            --cpu {threads} --data_dir "$LOCAL/db" --temp_dir "$LOCAL/tmp" \
+            -i "$LOCAL/proteins.faa" --output {P}.95NT --output_dir {params.out} --override
+        echo "emapper end: $(date)"
+        gzip -c {params.out}/{P}.95NT.emapper.annotations > {output}.part
+        mv {output}.part {output}
+        """
+
+
+# 08. summary
+rule summary:
+    input:
+        orig=rules.orf_catalog.output.orig,
+        clusters=rules.cluster_table.output,
+        ann=rules.eggnog.output,
+        fna=f"{P}.ORF.fna.xz",
+    output:
+        f"{P}.catalogue_summary.tsv",
+    log:
+        "logs/08_summary.log",
+    shell:
+        "{PY} {S}/08_summary.py {input.orig} {input.clusters} {input.ann} {output} > {log} 2>&1"
