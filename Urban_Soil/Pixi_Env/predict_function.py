@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Predict the COG category of every smORF from its neighbour genes with 394
+Predict the COG category of every smORF from its neighbour genes with 490
 rules, and score each rule on the smORFs whose category is known.
 
     python3 predict_function.py smorf_neighbourhoods.sqlite           show the results
@@ -927,6 +927,116 @@ def halves(d):
     return np.array(sorted(annotated[:half]), dtype=np.int64), np.array(sorted(annotated[half:]), dtype=np.int64)
 
 
+GROUP_SIM = 0.9  # annotated smORFs with neighbourhoods at least this similar go in the same half
+
+
+def related_pairs(d, min_sim=GROUP_SIM):
+    """(i, j) pairs of related annotated smORFs: on the same target gene, or
+    one among the 25 smORFs with the most similar neighbourhood of the other
+    (COG IDs within 3 genes, the search of rules AL) with cosine similarity
+    >= min_sim. Cached."""
+    key = ("related pairs", min_sim)
+    if key in d.cache:
+        return d.cache[key]
+    annotated = d.smorfs["annotated"].to_numpy()
+    i, j = [np.zeros(0, dtype=np.int64)], [np.zeros(0, dtype=np.int64)]
+    found = nearest(d, "faiss", 25, 3, 512) or nearest(d, "exact", 25, 3, 512)
+    if found is not None:
+        who, nn, sim = found
+        a, b, s = np.repeat(who, nn.shape[1]), nn.ravel(), sim.ravel()
+        ok = (b >= 0) & (a != b) & (s >= min_sim - SIM_TOLERANCE)
+        a, b = a[ok], b[ok]
+        ok = annotated[a] & annotated[b]
+        i.append(a[ok])
+        j.append(b[ok])
+    targets = target_genes(d)
+    if targets is not None:  # smORFs on the same gene: link each to the next one on that gene
+        smorf, gene, _ = targets
+        order = np.argsort(gene, kind="stable")
+        smorf, gene = smorf[order], gene[order]
+        same = (gene[1:] == gene[:-1]) & (smorf[1:] != smorf[:-1]) & annotated[smorf[1:]] & annotated[smorf[:-1]]
+        i.append(smorf[:-1][same])
+        j.append(smorf[1:][same])
+    d.cache[key] = np.concatenate(i), np.concatenate(j)
+    return d.cache[key]
+
+
+def related_groups(d, min_sim=GROUP_SIM):
+    """A group number per smORF, clustered like CD-HIT: the annotated smORFs
+    are taken in a random order, and each one not yet in a group starts a new
+    group with the smORFs directly related to it (related_pairs) that are not
+    yet in a group. No chains, so no single giant group. Cached."""
+    key = ("related groups", min_sim)
+    if key in d.cache:
+        return d.cache[key]
+    n = d.smorfs.height
+    i, j = related_pairs(d, min_sim)
+    a, b = np.r_[i, j], np.r_[j, i]  # both directions
+    order = np.argsort(a, kind="stable")
+    a, b = a[order], b[order]
+    start = np.searchsorted(a, np.arange(n + 1))
+    annotated = [int(x) for x in np.flatnonzero(d.smorfs["annotated"].to_numpy())]
+    random.Random(FOREST_SEED).shuffle(annotated)
+    group = np.full(n, -1, dtype=np.int64)
+    g = 0
+    for x in annotated:
+        if group[x] < 0:
+            group[x] = g
+            mates = b[start[x]:start[x + 1]]
+            group[mates[group[mates] < 0]] = g
+            g += 1
+    rest = group < 0
+    group[rest] = g + np.arange(rest.sum())
+    d.cache[key] = group
+    return group
+
+
+def grouped_halves(d, min_sim=GROUP_SIM):
+    """TRAIN and TEST halves like halves(), but related smORFs (related_groups)
+    always go in the same half, so a model is never scored on a smORF whose
+    near-copy it was trained on. Whole groups, in a random order, fill the
+    first half until it holds half of the annotated smORFs."""
+    key = ("grouped halves", min_sim)
+    if key not in d.cache:
+        annotated = np.flatnonzero(d.smorfs["annotated"].to_numpy())
+        g = related_groups(d, min_sim)[annotated]
+        ids, size = np.unique(g, return_counts=True)
+        order = list(range(len(ids)))
+        random.Random(FOREST_SEED).shuffle(order)
+        start = np.cumsum(size[order]) - size[order]
+        first = np.zeros(len(ids), dtype=bool)
+        first[np.array(order, dtype=np.int64)[start < len(annotated) // 2]] = True
+        in_first = first[np.searchsorted(ids, g)]
+        d.cache[key] = annotated[in_first], annotated[~in_first]
+        i, j = related_pairs(d, min_sim)
+        half = np.zeros(d.smorfs.height, dtype=np.int8)
+        half[annotated[in_first]] = 1
+        across = (half[i] != half[j]).sum()
+        print(f"    (grouped halves: {len(annotated):,} annotated smORFs in {len(ids):,} groups, largest "
+              f"{size.max() if len(size) else 0:,}, {(size > 1).sum():,} groups with more than one; halves of "
+              f"{in_first.sum():,} and {(~in_first).sum():,}; related pairs {len(i):,}, split across the "
+              f"halves {across:,} ({pct(across, len(i)) or 0}%), with random halves "
+              f"{pct(random_across(d, i, j), len(i)) or 0}%)", flush=True)
+    return d.cache[key]
+
+
+def random_across(d, i, j):
+    """How many of the pairs (i, j) the random halves split"""
+    a, _ = halves(d)
+    half = np.zeros(d.smorfs.height, dtype=np.int8)
+    half[a] = 1
+    return int((half[i] != half[j]).sum())
+
+
+def split_halves(d, split):
+    """split: "random" (halves, as cascade.py) or "grouped" (grouped_halves)"""
+    if split == "random":
+        return halves(d)
+    if split == "grouped":
+        return grouped_halves(d)
+    raise ValueError(f"unknown split {split}")
+
+
 def fit_forest(x, k, rows):
     """Random forest trained on rows with features and a known category (one
     training row per known category, weight 1 / number of categories)"""
@@ -952,14 +1062,15 @@ def forest_probabilities(model, x, n_cats, rows=None):
 FOREST_DROP = {"strand": ("_same_strand",), "distance": ("_log_distance", "_overlaps")}
 
 
-def random_forest(d, exclude=(), cutoff=None, drop=()):
+def random_forest(d, exclude=(), cutoff=None, drop=(), split="random"):
     """Random forest on ml_features. Each annotated smORF is predicted by a
     model trained on the OTHER half (the TRAIN/TEST halves of cascade.py), so
     its accuracy is not inflated; smORFs without a known category by a model
     trained on all annotated smORFs. Winner's % = the forest's confidence.
     cutoff: predict only if the confidence is >= cutoff %.
-    drop: leave out "strand" and/or "distance" (log distance and overlap) features."""
-    key = ("forest", tuple(exclude), tuple(drop))
+    drop: leave out "strand" and/or "distance" (log distance and overlap) features.
+    split: "random" halves, or "grouped" (related smORFs in the same half)."""
+    key = ("forest", tuple(exclude), tuple(drop)) + ((split,) if split != "random" else ())
     if key not in d.cache:
         try:
             import sklearn  # noqa: F401
@@ -971,7 +1082,7 @@ def random_forest(d, exclude=(), cutoff=None, drop=()):
             gone = sum((FOREST_DROP[f] for f in drop), ())
             x = x[:, [i for i, n in enumerate(feature_names(d)) if not n.endswith(gone)]]
         k = known_matrix(d, exclude)
-        a, b = halves(d)
+        a, b = split_halves(d, split)
         rest = np.flatnonzero(~d.smorfs["annotated"].to_numpy())
         prob = np.zeros((d.smorfs.height, d.n_cats))
         for train, predict in ((a, b), (b, a), (np.r_[a, b], rest)):
@@ -1053,19 +1164,20 @@ def fit_model(name, x, k, rows):
     return model
 
 
-def ml_probabilities(d, name, exclude=()):
+def ml_probabilities(d, name, exclude=(), split="random"):
     """smORF x category probabilities from model `name`, predicted as in
     random_forest: each annotated smORF by a model trained on the other half,
     the rest by a model trained on all annotated smORFs. Cached."""
+    tag = (split,) if split != "random" else ()
     if name == "forest":
-        random_forest(d, exclude=exclude)
-        return d.cache[("forest", tuple(exclude), ())]
-    key = ("ml", name, tuple(exclude))
+        random_forest(d, exclude=exclude, split=split)
+        return d.cache[("forest", tuple(exclude), ()) + tag]
+    key = ("ml", name, tuple(exclude)) + tag
     if key not in d.cache:
         t = time.time()
         x = ml_features(d)
         k = known_matrix(d, exclude)
-        a, b = halves(d)
+        a, b = split_halves(d, split)
         rest = np.flatnonzero(~d.smorfs["annotated"].to_numpy())
         prob = np.zeros((d.smorfs.height, d.n_cats))
         for train, pred in ((a, b), (b, a), (np.r_[a, b], rest)):
@@ -1076,7 +1188,7 @@ def ml_probabilities(d, name, exclude=()):
     return d.cache[key]
 
 
-def ml_model(d, model="boosting", exclude=(), cutoff=None):
+def ml_model(d, model="boosting", exclude=(), cutoff=None, split="random"):
     """One of ML_MODELS, used like the random forest. Winner's % = the
     model's probability for the predicted category."""
     try:
@@ -1084,17 +1196,17 @@ def ml_model(d, model="boosting", exclude=(), cutoff=None):
     except ImportError:
         print("  (scikit-learn not installed: the ML rules predict nothing)", flush=True)
         return nothing(d)
-    return from_probabilities(d, ml_probabilities(d, model, exclude), cutoff)
+    return from_probabilities(d, ml_probabilities(d, model, exclude, split), cutoff)
 
 
-def ml_ensemble(d, models=ENSEMBLE, exclude=(), cutoff=None):
+def ml_ensemble(d, models=ENSEMBLE, exclude=(), cutoff=None, split="random"):
     """Average of the probabilities of several models"""
     try:
         import sklearn  # noqa: F401
     except ImportError:
         print("  (scikit-learn not installed: the ML rules predict nothing)", flush=True)
         return nothing(d)
-    prob = np.mean([ml_probabilities(d, m, exclude) for m in models], axis=0)
+    prob = np.mean([ml_probabilities(d, m, exclude, split) for m in models], axis=0)
     return from_probabilities(d, prob, cutoff)
 
 
@@ -1425,6 +1537,37 @@ def build_combinations(d):
             add("AO. ML ensemble", f"average of random forest, gradient boosting, extra trees, logistic "
                 f"regression and neural network (each half predicted by models trained on the other half)"
                 f"{need}, {cname}", ml_ensemble, exclude=ex, cutoff=cut)
+
+    # AP. the ML rules again, but related smORFs (same target gene, or neighbourhoods
+    # with cosine similarity >= 0.9) are kept in the same half, so a smORF is never
+    # scored by a model trained on its near-copy. If accuracy drops a lot compared
+    # with the same rule in AE/AG/AN/AO, those scores were inflated (84)
+    grouped = "(related smORFs kept in the same half: same target gene or neighbourhood similarity >= 0.9)"
+    for model, text in (("forest", "random forest"),) + tuple(
+            (m, ML_MODELS[m]) for m in ("extra_trees", "boosting", "logistic", "knn", "mlp")) + (
+            ("ensemble", "average of random forest, gradient boosting, extra trees, logistic regression and "
+                         "neural network"),):
+        for cut in (None, 50, 60, 70, 80, 90):
+            for cname, ex in cats_opts:
+                need = f", predict only if confidence >= {cut}%" if cut else ""
+                rule = (f"{text} on COG letters, strand and distance of 5 genes per side, each half predicted by "
+                        f"a model trained on the other half {grouped}{need}, {cname}")
+                if model == "forest":
+                    add("AP. Grouped halves", rule, random_forest, exclude=ex, cutoff=cut, split="grouped")
+                elif model == "ensemble":
+                    add("AP. Grouped halves", rule, ml_ensemble, exclude=ex, cutoff=cut, split="grouped")
+                else:
+                    add("AP. Grouped halves", rule, ml_model, model=model, exclude=ex, cutoff=cut, split="grouped")
+
+    # AQ. random forest on COG letters only (no strand, no distance), grouped halves:
+    # the simplest model, scored the strict way (12)
+    for cut in (None, 50, 60, 70, 80, 90):
+        for cname, ex in cats_opts:
+            need = f", predict only if confidence >= {cut}%" if cut else ""
+            add("AQ. Grouped halves, COG letters only", f"random forest on COG letters only (no strand, no "
+                f"distance) of 5 genes per side, each half predicted by a model trained on the other half "
+                f"{grouped}{need}, {cname}", random_forest, exclude=ex, cutoff=cut, drop=("strand", "distance"),
+                split="grouped")
     return combos
 
 
