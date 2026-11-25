@@ -4,12 +4,17 @@
 mags_dir: /work/microbiome/share/for_kruthi_from_hongyu/supacow_smORFs/MAGs
 out_dir: /work/microbiome/users/kruthi/intermediate_results/supacow/Gene_Catalog
 
-prefix: SC          # IDs: SC.ORF.000_000_000, SC.100NT.000_000_000, SC.95NT.000_000_000
+prefix: COW         # genes: COW.ORF/COW.100NT/COW.95NT.000_000_000; smORFs: COW_SM.100AA/COW_SM.90AA.000_000_000 (pad9)
 
 # tools
-env_bin: /home/n12228516/.conda/envs/kruthi/bin                  # prodigal, python3, xz
+env_bin: /home/n12228516/.conda/envs/kruthi/bin                  # prodigal, python3, xz, cd-hit
 mmseqs: /work/microbiome/users/kruthi/intermediate_results/urban_soil/Prodigal/mmseqs_64bit/mmseqs/bin/mmseqs  # static AVX2 build (conda build crashed on some nodes)
 emapper_bin: /home/n12228516/.conda/envs/eggnog212/bin          # eggNOG-mapper 2.1.12, as Urban Soil
 eggnog_db: /work/microbiome/db/eggnog-mapper/2.1.12              # copied to $TMPDIR before use (eResearch rule)
 
-threads: 32         # for mmseqs and eggNOG
+gmsc_bin: /home/n12228516/.conda/envs/gmscmapper/bin             # GMSC-mapper 0.2.0, as Urban Soil
+gmsc_db: /home/n12228516/tools/GMSC-mapper_git_version/db        # copied to $TMPDIR before use
+
+threads: 32         # for mmseqs
+eggnog_chunks: 20   # eggNOG runs in this many pieces, 8 CPUs each
+gmsc_chunks: 16     # GMSC-mapper runs on this many groups of MAGs, 8 CPUs each

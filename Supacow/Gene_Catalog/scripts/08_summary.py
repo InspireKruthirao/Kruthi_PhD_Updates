@@ -3,7 +3,7 @@
 STEP 08 - One summary of the catalogue: genes per stage, partial genes,
 eggNOG coverage and COG categories of the 95NT representatives.
 
-    08_summary.py ORIG_TSV CLUSTERS EMAPPER_ANNOTATIONS OUT_TSV
+    08_summary.py ORIG_TSV CLUSTERS EMAPPER_ANNOTATIONS OUT_TSV [SMORF_LOG SMORF_CLUSTERS]
 """
 
 import sys
@@ -13,7 +13,8 @@ from common import open_text
 
 
 def main():
-    orig, clusters, annotations, out_path = sys.argv[1:]
+    orig, clusters, annotations, out_path = sys.argv[1:5]
+    smorf_log, smorf_clusters = (sys.argv[5:7] + [None, None])[:2]
     mags, partial = set(), Counter()
     n_orfs = 0
     with open_text(orig) as f:
@@ -55,6 +56,17 @@ def main():
         ("95NT with an eggNOG hit", n_ann, pct(n_ann, len(rep95))),
         ("95NT with a COG category", n_cog, pct(n_cog, len(rep95))),
     ]
+    if smorf_log:
+        with open(smorf_log) as f:
+            for line in f:
+                name, value = line.rsplit(":", 1)
+                rows.append((f"smORFs: {name}", int(value), ""))
+        n90 = set()
+        with open_text(smorf_clusters) as f:
+            next(f)
+            for line in f:
+                n90.add(line.split("\t")[1])
+        rows.append(("smORFs: 90AA clusters", len(n90), ""))
     rows += [(f"COG category {k}", round(v), pct(v, n_cog)) for k, v in sorted(cog.items(), key=lambda kv: -kv[1])]
     with open(out_path, "w") as out:
         out.write("measure\tcount\tpercent\n")

@@ -16,12 +16,15 @@ if not MAGS:
     raise ValueError(f"no *.fasta MAGs in {config['mags_dir']}")
 
 os.environ["PATH"] = f"{config['env_bin']}:" + os.environ["PATH"]  # xz for the scripts
+EGG_CHUNKS = [f"{i:02d}" for i in range(int(config["eggnog_chunks"]))]
+GMSC_CHUNKS = [f"{i:02d}" for i in range(int(config["gmsc_chunks"]))]
 
 
 rule all:
     input:
         f"{P}.clusters.tsv.xz",
         f"{P}.95NT.emapper.annotations.gz",
+        f"smorfs/{P}_90AA_SMORFs.faa.gz",
         f"{P}.catalogue_summary.tsv",
 
 
@@ -168,43 +171,149 @@ rule rep_proteins:
         "{PY} {S}/07_rep_proteins.py {input.fna95} {input.fna100} {input.faa} {output} > {log} 2>&1"
 
 
-# 07. eggNOG-mapper 2.1.12 (diamond) on the 95NT representatives, once.
-# The database is copied to node-local $TMPDIR first (eResearch rule: never
-# read eggnog.db from /work during a job).
-rule eggnog:
+# 07. eggNOG-mapper 2.1.12 (diamond) on the 95NT representatives, once, in
+# chunks (finished chunks are kept if the job runs out of time). The database
+# is copied to node-local disk once per job (eResearch rule).
+rule eggnog_split:
     input:
         rules.rep_proteins.output,
     output:
-        f"{P}.95NT.emapper.annotations.gz",
+        temp(expand("work/eggnog/chunk{c}.faa", c=EGG_CHUNKS)),
     params:
-        out="eggnog",
+        n=len(EGG_CHUNKS),
     log:
-        "logs/07_eggnog.log",
-    threads: T
+        "logs/07_eggnog_split.log",
+    shell:
+        "{PY} {S}/eggnog_chunks.py split {input} work/eggnog {params.n} > {log} 2>&1"
+
+
+rule eggnog_chunk:
+    input:
+        "work/eggnog/chunk{c}.faa",
+    output:
+        "eggnog/chunk{c}.emapper.annotations",
+    log:
+        "logs/eggnog/chunk{c}.log",
+    threads: 8
+    resources:
+        mem_mb=40000,
     shell:
         r"""
         set -euo pipefail
         exec > {log} 2>&1
         export PATH="{config[emapper_bin]}:$PATH"   # diamond
-        LOCAL="${{TMPDIR:-/tmp}}/sc_eggnog_$$"
-        mkdir -p "$LOCAL/db" "$LOCAL/tmp"
-        trap 'rm -rf "$LOCAL"' EXIT
-        need=$(du -sk {config[eggnog_db]} | cut -f1)
-        free=$(df -Pk "$LOCAL" | awk 'NR==2 {{print $4}}')
-        echo "eggNOG db needs ${{need}} kB, $LOCAL has ${{free}} kB free"
-        [ "$free" -gt $((need + 20000000)) ] || {{ echo "not enough local disk for the eggNOG db"; exit 1; }}
-        echo "copying db: $(date)"
-        cp -r {config[eggnog_db]}/. "$LOCAL/db/"
-        xz -dc {input} > "$LOCAL/proteins.faa"
-        mkdir -p {params.out}
+        DB=$(bash {S}/local_copy.sh {config[eggnog_db]} cow_eggnog_db)
+        TMP="${{TMPDIR:-/tmp}}/cow_eggnog_tmp_{wildcards.c}"
+        rm -rf "$TMP"; mkdir -p "$TMP" eggnog
         echo "emapper start: $(date)"
         {config[emapper_bin]}/python {config[emapper_bin]}/emapper.py -m diamond --itype proteins \
-            --cpu {threads} --data_dir "$LOCAL/db" --temp_dir "$LOCAL/tmp" \
-            -i "$LOCAL/proteins.faa" --output {P}.95NT --output_dir {params.out} --override
+            --cpu {threads} --data_dir "$DB" --temp_dir "$TMP" \
+            -i {input} --output chunk{wildcards.c} --output_dir eggnog --override
+        rm -rf "$TMP"
         echo "emapper end: $(date)"
-        gzip -c {params.out}/{P}.95NT.emapper.annotations > {output}.part
-        mv {output}.part {output}
         """
+
+
+rule eggnog_merge:
+    input:
+        expand("eggnog/chunk{c}.emapper.annotations", c=EGG_CHUNKS),
+    output:
+        f"{P}.95NT.emapper.annotations.gz",
+    log:
+        "logs/07_eggnog_merge.log",
+    shell:
+        "{PY} {S}/eggnog_chunks.py merge {output} {input} > {log} 2>&1"
+
+
+# 09. smORFs: GMSC-mapper 0.2.0 (diamond) on the MAGs, as Urban Soil, in
+# chunks of MAGs (contigs renamed <MAG>|<contig>; GMSC-mapper finds genes
+# contig by contig, so chunking does not change the result)
+rule gmsc_input:
+    input:
+        expand(f"{config['mags_dir']}/{{mag}}.fasta", mag=MAGS),
+    output:
+        temp("work/gmsc/chunk{g}.fna"),
+    params:
+        n=len(GMSC_CHUNKS),
+    log:
+        "logs/gmsc/input_chunk{g}.log",
+    shell:
+        "{PY} {S}/gmsc_chunk_input.py {config[mags_dir]} {params.n} {wildcards.g} {output} > {log} 2>&1"
+
+
+rule gmsc_mapper:
+    input:
+        "work/gmsc/chunk{g}.fna",
+    output:
+        mapped="gmsc/chunk{g}/mapped.smorfs.faa",
+        predicted="gmsc/chunk{g}/predicted.filtered.smorf.faa",
+    params:
+        out="gmsc/chunk{g}",
+    log:
+        "logs/gmsc/chunk{g}.log",
+    threads: 8
+    resources:
+        mem_mb=90000,
+    shell:
+        r"""
+        set -euo pipefail
+        exec > {log} 2>&1
+        export PATH="{config[gmsc_bin]}:$PATH"
+        DB=$(bash {S}/local_copy.sh {config[gmsc_db]} cow_gmsc_db)
+        echo "gmsc-mapper start: $(date)"
+        {config[gmsc_bin]}/gmsc-mapper -i {input} -o {params.out} --dbdir "$DB" -t {threads} --tool diamond
+        echo "gmsc-mapper end: $(date)"
+        """
+
+
+rule smorf_resource:
+    input:
+        expand("gmsc/chunk{g}/mapped.smorfs.faa", g=GMSC_CHUNKS),
+        expand("gmsc/chunk{g}/predicted.filtered.smorf.faa", g=GMSC_CHUNKS),
+    output:
+        faa=f"smorfs/{P}_100AA_SMORFs_sequences.faa.gz",
+        origins=f"smorfs/{P}_100AA_SMORFs_origins.tsv.gz",
+        ht=f"smorfs/{P}_100AA_SMORFs_habitat_taxonomy.tsv",
+        log=f"smorfs/{P}_100AA_SMORFs_merge_log.txt",
+    params:
+        n=len(GMSC_CHUNKS),
+    log:
+        "logs/09_smorf_resource.log",
+    shell:
+        "{PY} {S}/09_smorf_resource.py gmsc {params.n} {P}_SM {output.faa} {output.origins} {output.ht} "
+        "{output.log} > {log} 2>&1"
+
+
+# 10. smORFs at 90% identity (CD-HIT, as Urban_Soil/SmORF_Catalog/Cluster_SmORFs.sh)
+rule smorf_cdhit:
+    input:
+        rules.smorf_resource.output.faa,
+    output:
+        faa=temp(f"work/smorfs/{P}_90AA_SMORFs"),
+        clstr=f"smorfs/{P}_90AA_SMORFs.clstr",
+    log:
+        "logs/10_smorf_cdhit.log",
+    threads: 16
+    resources:
+        mem_mb=20000,
+    shell:
+        "{config[env_bin]}/cd-hit -i {input} -o {output.faa} -c 0.9 -n 5 -M 16000 -T {threads} -d 0 > {log} 2>&1 "
+        "&& mv {output.faa}.clstr {output.clstr}"
+
+
+rule smorf_90aa:
+    input:
+        clstr=rules.smorf_cdhit.output.clstr,
+        faa=rules.smorf_resource.output.faa,
+        origins=rules.smorf_resource.output.origins,
+    output:
+        clusters=f"smorfs/{P}_SMORF_Clusters.tsv.gz",
+        faa=f"smorfs/{P}_90AA_SMORFs.faa.gz",
+    log:
+        "logs/10_smorf_90aa.log",
+    shell:
+        "{PY} {S}/10_smorf_90aa.py {input.clstr} {input.faa} {input.origins} {P}_SM {output.clusters} "
+        "{output.faa} > {log} 2>&1"
 
 
 # 08. summary
@@ -212,11 +321,14 @@ rule summary:
     input:
         orig=rules.orf_catalog.output.orig,
         clusters=rules.cluster_table.output,
-        ann=rules.eggnog.output,
+        ann=rules.eggnog_merge.output,
         fna=f"{P}.ORF.fna.xz",
+        smorf_log=rules.smorf_resource.output.log,
+        smorf_clusters=rules.smorf_90aa.output.clusters,
     output:
         f"{P}.catalogue_summary.tsv",
     log:
         "logs/08_summary.log",
     shell:
-        "{PY} {S}/08_summary.py {input.orig} {input.clusters} {input.ann} {output} > {log} 2>&1"
+        "{PY} {S}/08_summary.py {input.orig} {input.clusters} {input.ann} {output} "
+        "{input.smorf_log} {input.smorf_clusters} > {log} 2>&1"
