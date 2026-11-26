@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Predict the COG category of every smORF from its neighbour genes with 490
+Predict the COG category of every smORF from its neighbour genes with 570
 rules, and score each rule on the smORFs whose category is known.
 
     python3 predict_function.py smorf_neighbourhoods.sqlite [--save] [--report]
@@ -773,10 +773,11 @@ def known_codes(d, exclude=()):
     return t["smorf"].to_numpy(), t["code"].to_numpy()
 
 
-def similar_vote(d, engine="annoy", k=10, max_rank=3, dims=512, exclude=(), vectors="cog_ids", **opts):
+def similar_vote(d, engine="annoy", k=10, max_rank=3, dims=512, exclude=(), vectors="cog_ids", split=None, **opts):
     """The k smORFs with the most similar neighbourhoods vote for their known
     categories, weighted by similarity. Not the smORF itself, not smORFs on
-    the same target gene, not smORFs with nothing in common."""
+    the same target gene, not smORFs with nothing in common. split (e.g.
+    "grouped5"): an annotated smORF only hears smORFs of the other folds."""
     defaults = {"annoy": {"n_trees": 20}, "voyager": {"M": 12, "ef_construction": 200, "query_ef": 100}}
     found = nearest(d, engine, k, max_rank, dims, vectors, **{**defaults.get(engine, {}), **opts})
     if found is None:
@@ -793,6 +794,9 @@ def similar_vote(d, engine="annoy", k=10, max_rank=3, dims=512, exclude=(), vect
     ok = (n_known[j] > 0) & (s > SIM_TOLERANCE)
     if (targets := target_genes(d)) is not None:
         ok &= ~share_gene(i, j, targets)
+    if split:
+        fold = folds(d, split)
+        ok &= (fold[i] < 0) | (fold[i] != fold[j])
     i, j, s = i[ok], j[ok], s[ok]
     if not len(i):
         return always(d)
@@ -807,6 +811,8 @@ FOREST_POSITIONS = 5  # genes per side used as features
 FOREST_SEED = 0       # also the seed of the TRAIN/TEST halves in cascade.py
 FOREST_DROP = {"strand": ("_same_strand",), "distance": ("_log_distance", "_overlaps")}
 GROUP_SIM = 0.9       # annotated smORFs at least this similar go in the same half
+N_FOLDS = 5           # split "grouped5"
+STACK_K = 25          # neighbours behind the vote features of the stacked models
 ML_MODELS = {  # name used in the rules: text in the rule
     "boosting":     "gradient boosting (HistGradientBoosting)",
     "extra_trees":  "extra trees (more randomised random forest)",
@@ -954,6 +960,77 @@ def grouped_halves(d, min_sim=GROUP_SIM):
     return d.cache[key]
 
 
+def folds(d, split):
+    """Fold per smORF (-1: not annotated). "random" / "grouped": the two
+    halves above; "grouped5": N_FOLDS folds of whole related groups. Cached."""
+    key = ("folds", split)
+    if key not in d.cache:
+        fold = np.full(d.n, -1, dtype=np.int64)
+        if split in ("random", "grouped"):
+            a, b = grouped_halves(d) if split == "grouped" else halves(d)
+            fold[a], fold[b] = 0, 1
+        elif split == "grouped5":
+            annotated = np.flatnonzero(d.smorfs["annotated"].to_numpy())
+            ids, inv, size = np.unique(related_groups(d)[annotated], return_inverse=True, return_counts=True)
+            order = list(range(len(ids)))
+            random.Random(FOREST_SEED).shuffle(order)
+            order = np.array(order, dtype=np.int64)
+            start = np.cumsum(size[order]) - size[order]
+            f = np.empty(len(ids), dtype=np.int64)
+            f[order] = np.minimum(start * N_FOLDS // max(len(annotated), 1), N_FOLDS - 1)
+            fold[annotated] = f[inv]
+            i, j = related_pairs(d)
+            print(f"    (grouped {N_FOLDS}-fold: folds of {np.bincount(fold[annotated], minlength=N_FOLDS).tolist()}; "
+                  f"related pairs split across folds {pct((fold[i] != fold[j]).sum(), len(i)) or 0}%)", flush=True)
+        else:
+            raise ValueError(f"unknown split: {split}")
+        d.cache[key] = fold
+    return d.cache[key]
+
+
+def neighbour_pairs(d):
+    """(i, j, sim): each smORF's STACK_K most similar neighbourhoods (COG IDs,
+    as rules AL), not itself, not on the same target gene. Cached."""
+    if "nb pairs" not in d.cache:
+        found = nearest(d, "faiss", STACK_K, 3, 512) or nearest(d, "exact", STACK_K, 3, 512)
+        if found is None:
+            d.cache["nb pairs"] = None
+        else:
+            who, nn, sim = found
+            i, j, s = np.repeat(who, nn.shape[1]), nn.ravel(), sim.ravel()
+            ok = (j >= 0) & (j != i) & (s > SIM_TOLERANCE)
+            i, j, s = i[ok], j[ok], s[ok]
+            if (targets := target_genes(d)) is not None:
+                ok = ~share_gene(i, j, targets)
+                i, j, s = i[ok], j[ok], s[ok]
+            d.cache["nb pairs"] = i, j, s
+    return d.cache["nb pairs"]
+
+
+def vote_features(d, exclude, voters):
+    """smORF x (category share, total similarity, best similarity, n voters):
+    the similarity-weighted vote of its most similar smORFs among `voters`
+    (bool mask), never from its own related group, so training smORFs see
+    what test smORFs see"""
+    out = np.zeros((d.n, d.n_cats + 3), dtype=np.float32)
+    if (found := neighbour_pairs(d)) is None:
+        return out
+    i, j, s = found
+    group = related_groups(d)
+    k = known_matrix(d, exclude)
+    ok = voters[j] & (group[i] != group[j]) & k[j].any(axis=1)
+    i, j, s = i[ok], j[ok], s[ok]
+    vote = np.zeros((d.n, d.n_cats))
+    r, c = np.nonzero(k[j])
+    np.add.at(vote, (i[r], c), (s / k[j].sum(axis=1))[r])
+    total = vote.sum(axis=1)
+    out[:, :d.n_cats] = vote / np.maximum(total, 1e-12)[:, None]
+    out[:, d.n_cats] = total
+    np.maximum.at(out[:, d.n_cats + 1], i, s.astype(np.float32))
+    out[:, d.n_cats + 2] = np.bincount(i, minlength=d.n)
+    return out
+
+
 def make_model(name):
     """Untrained model; logistic, kNN and MLP standardise the features first"""
     from sklearn.ensemble import ExtraTreesClassifier, HistGradientBoostingClassifier, RandomForestClassifier
@@ -1005,11 +1082,13 @@ def predict_proba(model, x, n_cats, rows):
     return p
 
 
-def ml_probabilities(d, name, exclude=(), split="random", drop=()):
+def ml_probabilities(d, name, exclude=(), split="random", drop=(), stack=False):
     """smORF x category probabilities: each annotated smORF by a model trained
-    on the other half (split "random" or "grouped"), the rest by a model
-    trained on all annotated smORFs. drop: "strand" and/or "distance" features. Cached."""
-    key = ("ml", name, tuple(exclude), split, tuple(drop))
+    on the other folds (split "random" / "grouped": halves, "grouped5": 5
+    folds), the rest by a model trained on all annotated smORFs. drop:
+    "strand" and/or "distance" features. stack: add the neighbour vote
+    (vote_features) of the training smORFs. Cached."""
+    key = ("ml", name, tuple(exclude), split, tuple(drop), stack)
     if key not in d.cache:
         t = time.time()
         x = ml_features(d)
@@ -1017,14 +1096,23 @@ def ml_probabilities(d, name, exclude=(), split="random", drop=()):
             gone = sum((FOREST_DROP[f] for f in drop), ())
             x = x[:, [i for i, f in enumerate(feature_names(d)) if not f.endswith(gone)]]
         k = known_matrix(d, exclude)
-        a, b = grouped_halves(d) if split == "grouped" else halves(d)
-        rest = np.flatnonzero(~d.smorfs["annotated"].to_numpy())
+        fold = folds(d, split)
+        n_folds = int(fold.max()) + 1
+        parts = [np.flatnonzero(fold == f) for f in range(n_folds)]
+        runs = [(np.concatenate(parts[:f] + parts[f + 1:]), parts[f]) for f in range(n_folds)]
+        runs.append((np.concatenate(parts) if parts else np.zeros(0, dtype=np.int64), np.flatnonzero(fold < 0)))
         prob = np.zeros((d.n, d.n_cats))
-        for train, test in ((a, b), (b, a), (np.r_[a, b], rest)):
+        for train, test in runs:
             if len(train) and len(test):
-                prob += predict_proba(fit_model(name, x, k, train), x, d.n_cats, test)
+                xs = x
+                if stack:
+                    voters = np.zeros(d.n, dtype=bool)
+                    voters[train] = True
+                    xs = np.hstack([x, vote_features(d, exclude, voters)])
+                prob += predict_proba(fit_model(name, xs, k, train), xs, d.n_cats, test)
         d.cache[key] = prob
-        print(f"    ({name} trained 3 times in {time.time() - t:.1f}s)", flush=True)
+        print(f"    ({name}{' + vote' if stack else ''} trained {len(runs)} times in {time.time() - t:.1f}s)",
+              flush=True)
     return d.cache[key]
 
 
@@ -1046,22 +1134,23 @@ def have_sklearn():
         return False
 
 
-def ml_model(d, model="boosting", exclude=(), cutoff=None, split="random", drop=()):
+def ml_model(d, model="boosting", exclude=(), cutoff=None, split="random", drop=(), stack=False):
     """One model (forest or ML_MODELS); confidence = its probability"""
     if not have_sklearn():
         return always(d)
-    return from_probabilities(d, ml_probabilities(d, model, exclude, split, drop), cutoff)
+    return from_probabilities(d, ml_probabilities(d, model, exclude, split, drop, stack), cutoff)
 
 
-def random_forest(d, exclude=(), cutoff=None, drop=(), split="random"):
-    return ml_model(d, "forest", exclude, cutoff, split, drop)
+def random_forest(d, exclude=(), cutoff=None, drop=(), split="random", stack=False):
+    return ml_model(d, "forest", exclude, cutoff, split, drop, stack)
 
 
-def ml_ensemble(d, models=ENSEMBLE, exclude=(), cutoff=None, split="random"):
+def ml_ensemble(d, models=ENSEMBLE, exclude=(), cutoff=None, split="random", stack=False):
     """Average of the models' probabilities"""
     if not have_sklearn():
         return always(d)
-    return from_probabilities(d, np.mean([ml_probabilities(d, m, exclude, split) for m in models], axis=0), cutoff)
+    return from_probabilities(d, np.mean([ml_probabilities(d, m, exclude, split, stack=stack) for m in models],
+                                         axis=0), cutoff)
 
 
 # ------------------------------------------------------------ the rules ----
@@ -1071,6 +1160,11 @@ CURVE = {"flat": "flat", "linear": "linear", "steeper": "steeper", "very_steep":
 HALVES = "(each half predicted by a model trained on the other half)"
 GROUPED = ("each half predicted by a model trained on the other half (related smORFs kept in the same half: "
            "same target gene or neighbourhood similarity >= 0.9)")
+FOLD5 = ("each fifth predicted by a model trained on the other four fifths (related smORFs kept in the same "
+         "fifth)")
+FOLD5_VOTE = "only smORFs of the other four fifths vote (related smORFs kept in the same fifth)"
+STACK_TEXT = (" plus the vote of the 25 smORFs with the most similar neighbourhoods (COG IDs within 3 genes; "
+              "training smORFs only, never related ones)")
 ENSEMBLE_TEXT = "average of random forest, gradient boosting, extra trees, logistic regression and neural network"
 CUTS = (None, 50, 60, 70, 80, 90)
 
@@ -1307,6 +1401,23 @@ def build_combinations(d):
         both("AQ. Grouped halves, COG letters only", f"random forest on COG letters only (no strand, no distance) "
              f"of 5 genes per side, {GROUPED}{need(cut)}", random_forest, cutoff=cut, drop=("strand", "distance"),
              split="grouped")
+    # AR. the FAISS rules (AL), a smORF only hears smORFs of the other folds (8)
+    for vectors, text in (("cog_ids", "neighbourhoods (COG IDs within 3 genes, FAISS)"),
+                          ("letters", "COG letters (5 genes per side, linear weights, up/downstream kept apart, FAISS)")):
+        for k in (10, 25):
+            both("AR. Nearest neighbours, grouped 5-fold", f"the {k} smORFs with the most similar {text} vote, "
+                 f"{FOLD5_VOTE}", similar_vote, engine="faiss", k=k, vectors=vectors, split="grouped5")
+    # AS. ML trained on 4/5 instead of 1/2 (36); AT. the same plus the
+    # neighbour vote (COG IDs) of the training smORFs as features (36)
+    for group, stack, extra in (("AS. Grouped 5-fold", False, ""),
+                                ("AT. Stacked (ML + neighbour vote), grouped 5-fold", True, STACK_TEXT)):
+        for model, text in (("forest", "random forest"), ("extra_trees", ML_MODELS["extra_trees"]),
+                            ("ensemble", ENSEMBLE_TEXT)):
+            fn, s = ((ml_ensemble, {}) if model == "ensemble" else
+                     (random_forest, {}) if model == "forest" else (ml_model, {"model": model}))
+            for cut in CUTS:
+                both(group, f"{text} on COG letters, strand and distance of 5 genes per side{extra}, {FOLD5}"
+                     f"{need(cut)}", fn, **s, cutoff=cut, split="grouped5", stack=stack)
     return combos
 
 
