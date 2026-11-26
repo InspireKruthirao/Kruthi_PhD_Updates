@@ -1,0 +1,53 @@
+#!/bin/bash -l
+
+#PBS -N US_100NT_catalog
+#PBS -l select=1:ncpus=100:mem=300gb
+#PBS -l walltime=48:00:00
+#PBS -q cpu_batch_exec
+#PBS -j oe
+#PBS -m abe
+#PBS -o /work/microbiome/users/kruthi/intermediate_results/urban_soil/Prodigal/Run_US_100NT_catalog.log
+
+
+set -euo pipefail
+
+
+WORKDIR="/work/microbiome/users/kruthi/intermediate_results/urban_soil/Prodigal"
+
+cd "$WORKDIR"
+
+
+source ~/.bashrc
+conda activate kruthi
+
+
+echo "=================================================="
+echo "Urban Soil 100NT catalogue"
+echo "=================================================="
+echo "Job ID:          $PBS_JOBID"
+echo "Host:            $(hostname)"
+echo "Start:           $(date)"
+echo "CPUs requested:  100"
+echo "Memory requested: 300 GB"
+echo "=================================================="
+
+
+echo
+echo "Python:"
+which python3
+python3 --version
+
+
+echo
+echo "Starting 100NT catalogue generation..."
+echo
+
+
+python3 -u Run_US_100NT_catalog.py
+
+
+echo
+echo "=================================================="
+echo "FINISHED SUCCESSFULLY"
+echo "End: $(date)"
+echo "=================================================="

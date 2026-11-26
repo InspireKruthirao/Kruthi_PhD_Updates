@@ -1,0 +1,4 @@
+__pycache__/
+*.e[0-9]*
+*.o[0-9]*
+Urban_Soil/Pixi_Env/predictions_all_smorfs.tsv

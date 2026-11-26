@@ -1,0 +1,22 @@
+#!/bin/bash -l
+
+#PBS -N US_95NT_postprocess
+#PBS -l select=1:ncpus=16:mem=16gb
+#PBS -l walltime=48:00:00
+#PBS -q cpu_batch_exec
+#PBS -j oe
+#PBS -o /work/microbiome/users/kruthi/intermediate_results/urban_soil/Prodigal/US_95NT_postprocess.log
+
+cd /work/microbiome/users/kruthi/intermediate_results/urban_soil/Prodigal
+
+source ~/.bashrc
+conda activate kruthi
+
+set -euo pipefail
+
+echo "Started: $(date)"
+echo "Host: $(hostname)"
+
+python3 -u postprocess_mmseqs95.py
+
+echo "Finished: $(date)"

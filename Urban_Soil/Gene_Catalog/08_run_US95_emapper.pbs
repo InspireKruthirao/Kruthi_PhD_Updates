@@ -1,0 +1,23 @@
+#!/bin/bash -l
+
+#PBS -N US95_emapper
+#PBS -l select=1:ncpus=100:mem=128gb
+#PBS -l walltime=04:00:00
+#PBS -q cpu_batch_exec
+#PBS -j oe
+#PBS -m abe
+
+set -euo pipefail
+
+cd /work/microbiome/users/kruthi/intermediate_results/urban_soil/Prodigal
+
+export PATH="/home/n12228516/.conda/envs/kruthi/bin:$PATH"
+
+echo "Urban Soil 95NT eggNOG annotation transfer"
+echo "Job ID: $PBS_JOBID"
+echo "Started: $(date)"
+echo "CPUs: $PBS_NCPUS"
+
+python3 -u 08_US95_emapper.py
+
+echo "Finished: $(date)"

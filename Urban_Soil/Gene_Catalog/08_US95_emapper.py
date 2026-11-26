@@ -1,0 +1,858 @@
+#!/usr/bin/env python3
+"""
+STAGE 8 - Transfer per-sample eggNOG-mapper annotations onto the
+95NT catalogue, without re-running eggNOG-mapper on the deduplicated
+representatives.
+
+Rationale: eggNOG-mapper was already run once per sample (Stage 7)
+on ~20M+ protein predictions in total. Re-running it again on the
+199M-representative 95NT catalogue would be redundant. Instead, for
+every 95NT cluster we pick one *exact* (rel100=='=' and rel95=='=')
+member ORF -- the lowest-numbered original ORF ID, i.e. the ORF that
+is simultaneously its own 100NT representative AND its own 95NT
+representative -- and copy that ORF's existing per-sample eggNOG
+annotation row (if any) onto the 95NT representative ID.
+
+Input : US.clusters.tsv.xz          (Stage 6 cluster-mapping table)
+        UrbanSoil.ORF.orig.tsv.xz   (Stage 1 ORF -> sample/original-ID)
+        egg_nog/results/<sample>/<sample>.emapper.annotations (Stage 7,
+        58 samples expected)
+Output: US.95NT.emapper.annotations.gz -- one row per 95NT
+        representative that had an annotated canonical ORF, with the
+        original eggNOG-mapper column header prefixed by a
+        `US.95NT` ID column, sorted by that ID.
+"""
+
+import os
+import sys
+import glob
+import shutil
+import subprocess
+from pathlib import Path
+from contextlib import contextmanager
+
+import numpy as np
+
+
+# Shanghai Dogs utility functions
+
+sys.path.insert(
+    0,
+    "/work/microbiome/shanghai_dogs/resource_generation"
+)
+
+import lib
+
+
+# Paths
+
+WORK = Path(
+    "/work/microbiome/users/kruthi/"
+    "intermediate_results/urban_soil/Prodigal"
+)
+
+CATALOG = Path(
+    "/work/microbiome/users/kruthi/"
+    "intermediate_results/urban_soil/Gene_Catalog_Urban_Soil"
+)
+
+EGGNOG_BASE = Path(
+    "/work/microbiome/users/kruthi/"
+    "intermediate_results/egg_nog/results"
+)
+
+ORIGIN = CATALOG / "UrbanSoil.ORF.orig.tsv.xz"
+CLUSTERS = CATALOG / "US.clusters.tsv.xz"
+
+OUT = CATALOG / "US.95NT.emapper.annotations.gz"
+OUT_TMP = CATALOG / ".US.95NT.emapper.annotations.gz.part"
+
+TMP_BEST = WORK / "US.tmp.best_orf_for_95.uint32"
+TMP_ORF95 = WORK / "US.tmp.orf_to_95.uint32"
+
+SORT_TMP = WORK / "US_emapper_sort_tmp"
+
+
+# Catalogue sizes
+
+N_ORFS = 265_392_705
+N95 = 199_172_868
+
+SENTINEL = np.uint32(0xFFFFFFFF)
+
+THREADS = int(
+    os.environ.get("PBS_NCPUS", "16")
+)
+
+
+# Read xz files
+
+@contextmanager
+def xz_reader(fname):
+
+    p = subprocess.Popen(
+        [
+            "xz",
+            "-dc",
+            f"-T{THREADS}",
+            str(fname)
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+        bufsize=1024 * 1024
+    )
+
+    try:
+        yield p.stdout
+
+    finally:
+
+        if p.stdout is not None:
+            p.stdout.close()
+
+        ret = p.wait()
+
+        if ret != 0:
+            raise RuntimeError(
+                f"xz failed reading {fname}"
+            )
+
+
+# Extract catalogue number
+
+def numeric_id(identifier):
+
+    identifier = identifier.split(None, 1)[0]
+
+    return int(
+        identifier.rsplit(".", 1)[1]
+        .replace("_", "")
+    )
+
+
+# Check inputs
+
+for f in [ORIGIN, CLUSTERS]:
+
+    if not f.exists():
+
+        raise FileNotFoundError(
+            f"Missing required file: {f}"
+        )
+
+
+if not EGGNOG_BASE.exists():
+
+    raise FileNotFoundError(
+        f"Missing eggNOG directory: {EGGNOG_BASE}"
+    )
+
+
+# Find eggNOG files
+
+emapper_files = sorted(
+    glob.glob(
+        str(
+            EGGNOG_BASE /
+            "*" /
+            "*.emapper.annotations"
+        )
+    )
+)
+
+
+print("=" * 65, flush=True)
+print(
+    "URBAN SOIL 95NT eggNOG ANNOTATION TRANSFER",
+    flush=True
+)
+print("=" * 65, flush=True)
+
+print(
+    f"eggNOG files found : {len(emapper_files)}",
+    flush=True
+)
+
+
+if len(emapper_files) != 58:
+
+    raise RuntimeError(
+        f"Expected 58 eggNOG files, "
+        f"found {len(emapper_files)}"
+    )
+
+
+# Map samples to annotation files
+
+sample_to_emapper = {}
+
+common_header = None
+
+
+for fname in emapper_files:
+
+    p = Path(fname)
+
+    sample = p.parent.name
+
+    expected_name = (
+        sample + ".emapper.annotations"
+    )
+
+
+    if p.name != expected_name:
+
+        raise RuntimeError(
+            f"Unexpected eggNOG file name: {p}"
+        )
+
+
+    if sample in sample_to_emapper:
+
+        raise RuntimeError(
+            f"Duplicate eggNOG sample: {sample}"
+        )
+
+
+    sample_to_emapper[sample] = p
+
+
+    this_header = None
+
+    with open(p, "rt") as f:
+
+        for line in f:
+
+            if line.startswith("#query\t"):
+
+                this_header = line.rstrip("\n")
+                break
+
+
+    if this_header is None:
+
+        raise RuntimeError(
+            f"Could not find #query header in {p}"
+        )
+
+
+    if common_header is None:
+
+        common_header = this_header
+
+    elif this_header != common_header:
+
+        raise RuntimeError(
+            f"eggNOG headers differ: {p}"
+        )
+
+
+print(
+    "All 58 eggNOG files have matching headers.",
+    flush=True
+)
+
+
+# Clear temporary files
+
+for f in [
+    OUT_TMP,
+    TMP_BEST,
+    TMP_ORF95
+]:
+
+    if f.exists():
+        f.unlink()
+
+
+if SORT_TMP.exists():
+
+    shutil.rmtree(SORT_TMP)
+
+
+SORT_TMP.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+# Select exact ORFs
+
+print(flush=True)
+
+print(
+    "STEP 1: Selecting exact ORFs for 95NT representatives",
+    flush=True
+)
+
+
+best_orf = np.memmap(
+    TMP_BEST,
+    dtype=np.uint32,
+    mode="w+",
+    shape=(N95,)
+)
+
+orf_to_95 = np.memmap(
+    TMP_ORF95,
+    dtype=np.uint32,
+    mode="w+",
+    shape=(N_ORFS,)
+)
+
+
+best_orf[:] = SENTINEL
+orf_to_95[:] = SENTINEL
+
+
+n_cluster_rows = 0
+n_exact_candidates = 0
+
+
+with xz_reader(CLUSTERS) as f:
+
+    for line in f:
+
+        if not line.strip():
+            continue
+
+
+        fields = line.split()
+
+
+        if len(fields) != 5:
+
+            raise ValueError(
+                "Unexpected cluster row:\n"
+                + line
+            )
+
+
+        (
+            orf,
+            rel1,
+            rep100,
+            rel2,
+            rep95
+        ) = fields
+
+
+        n_cluster_rows += 1
+
+
+        if rel1 == "=" and rel2 == "=":
+
+            iorf = numeric_id(orf)
+            i95 = numeric_id(rep95)
+
+
+            if iorf >= N_ORFS:
+
+                raise RuntimeError(
+                    f"ORF index outside range: {orf}"
+                )
+
+
+            if i95 >= N95:
+
+                raise RuntimeError(
+                    f"95NT index outside range: {rep95}"
+                )
+
+
+            orf_to_95[iorf] = i95
+
+
+            if (
+                best_orf[i95] == SENTINEL
+                or
+                iorf < int(best_orf[i95])
+            ):
+
+                best_orf[i95] = iorf
+
+
+            n_exact_candidates += 1
+
+
+        if n_cluster_rows % 10_000_000 == 0:
+
+            print(
+                f"Cluster rows read: "
+                f"{n_cluster_rows:,}",
+                flush=True
+            )
+
+
+print(flush=True)
+
+print(
+    f"Total cluster rows : "
+    f"{n_cluster_rows:,}",
+    flush=True
+)
+
+print(
+    f"Exact candidates   : "
+    f"{n_exact_candidates:,}",
+    flush=True
+)
+
+
+if n_cluster_rows != N_ORFS:
+
+    raise RuntimeError(
+        f"Expected {N_ORFS:,} cluster rows, "
+        f"found {n_cluster_rows:,}"
+    )
+
+
+best_orf.flush()
+orf_to_95.flush()
+
+
+represented_95 = int(
+    np.count_nonzero(
+        best_orf != SENTINEL
+    )
+)
+
+
+print(
+    f"95NT representatives with exact ORF: "
+    f"{represented_95:,}",
+    flush=True
+)
+
+
+if represented_95 != N95:
+
+    raise RuntimeError(
+        f"Expected {N95:,} 95NT representatives, "
+        f"but found {represented_95:,}"
+    )
+
+
+# Prepare output
+
+print(flush=True)
+
+print(
+    "STEP 2: Mapping ORFs to eggNOG annotations",
+    flush=True
+)
+
+
+raw_out = open(
+    OUT_TMP,
+    "wb"
+)
+
+
+gzip_proc = subprocess.Popen(
+    [
+        "gzip",
+        "-c"
+    ],
+    stdin=subprocess.PIPE,
+    stdout=raw_out
+)
+
+
+sort_env = os.environ.copy()
+sort_env["LC_ALL"] = "C"
+
+
+sort_proc = subprocess.Popen(
+    [
+        "sort",
+        f"--parallel={THREADS}",
+        "-S",
+        "48G",
+        "-T",
+        str(SORT_TMP),
+        "-t",
+        "\t",
+        "-k1,1"
+    ],
+    stdin=subprocess.PIPE,
+    stdout=gzip_proc.stdin,
+    env=sort_env
+)
+
+
+gzip_proc.stdin.close()
+
+
+sort_proc.stdin.write(
+    (
+        "US.95NT\t"
+        + common_header
+        + "\n"
+    ).encode("utf-8")
+)
+
+
+# Process one sample
+
+def process_sample(sample, selected):
+
+    if sample not in sample_to_emapper:
+
+        raise RuntimeError(
+            f"No eggNOG annotation file for sample "
+            f"{sample}"
+        )
+
+
+    fname = sample_to_emapper[sample]
+
+
+    print(
+        f"Processing {sample}: "
+        f"{len(selected):,} selected 95NT ORFs",
+        flush=True
+    )
+
+
+    found = 0
+
+
+    with open(fname, "rt") as f:
+
+        for line in f:
+
+            if not line.strip():
+                continue
+
+
+            if line.startswith("#"):
+                continue
+
+
+            query = line.split("\t", 1)[0]
+
+            p95 = selected.get(query)
+
+
+            if p95 is None:
+                continue
+
+
+            rep95_name = lib.pad9(
+                "US.95NT",
+                p95
+            )
+
+
+            sort_proc.stdin.write(
+                (
+                    rep95_name
+                    + "\t"
+                    + line
+                ).encode("utf-8")
+            )
+
+
+            found += 1
+
+
+    print(
+        f"Annotated selected 95NTs: "
+        f"{found:,}",
+        flush=True
+    )
+
+
+    return found
+
+
+# Read original ORF mapping
+
+current_sample = None
+selected = {}
+
+seen_samples = set()
+
+n_origin = 0
+n_selected = 0
+n_annotated = 0
+
+
+with xz_reader(ORIGIN) as f:
+
+    for line in f:
+
+        if not line.strip():
+            continue
+
+
+        fields = line.rstrip("\n").split("\t")
+
+
+        if fields[0] == "ORF":
+            continue
+
+
+        if len(fields) < 3:
+
+            raise RuntimeError(
+                "Unexpected ORF origin row:\n"
+                + line
+            )
+
+
+        orf = fields[0]
+        sample = fields[1]
+        original_id = fields[2]
+
+
+        if sample != current_sample:
+
+            if current_sample is not None:
+
+                n_annotated += process_sample(
+                    current_sample,
+                    selected
+                )
+
+                seen_samples.add(
+                    current_sample
+                )
+
+
+            if sample in seen_samples:
+
+                raise RuntimeError(
+                    f"Sample {sample} occurs in "
+                    f"multiple blocks."
+                )
+
+
+            current_sample = sample
+            selected = {}
+
+
+        iorf = numeric_id(orf)
+
+
+        if iorf >= N_ORFS:
+
+            raise RuntimeError(
+                f"ORF outside expected range: "
+                f"{orf}"
+            )
+
+
+        p95 = int(
+            orf_to_95[iorf]
+        )
+
+
+        if p95 != int(SENTINEL):
+
+            if int(best_orf[p95]) == iorf:
+
+                if original_id in selected:
+
+                    raise RuntimeError(
+                        f"Duplicate Original_ID "
+                        f"within sample {sample}: "
+                        f"{original_id}"
+                    )
+
+
+                selected[original_id] = p95
+
+                n_selected += 1
+
+
+        n_origin += 1
+
+
+        if n_origin % 10_000_000 == 0:
+
+            print(
+                f"Origin ORFs read: "
+                f"{n_origin:,}",
+                flush=True
+            )
+
+
+# Process final sample
+
+if current_sample is not None:
+
+    n_annotated += process_sample(
+        current_sample,
+        selected
+    )
+
+    seen_samples.add(
+        current_sample
+    )
+
+
+print(flush=True)
+
+print(
+    f"Origin ORFs read             : "
+    f"{n_origin:,}",
+    flush=True
+)
+
+print(
+    f"Selected canonical 95NT ORFs : "
+    f"{n_selected:,}",
+    flush=True
+)
+
+print(
+    f"95NTs with eggNOG annotation : "
+    f"{n_annotated:,}",
+    flush=True
+)
+
+print(
+    f"Samples processed             : "
+    f"{len(seen_samples)}",
+    flush=True
+)
+
+
+# Check counts
+
+if n_origin != N_ORFS:
+
+    raise RuntimeError(
+        f"Expected {N_ORFS:,} ORFs in origin table, "
+        f"found {n_origin:,}"
+    )
+
+
+if n_selected != N95:
+
+    raise RuntimeError(
+        f"Expected {N95:,} selected canonical ORFs, "
+        f"found {n_selected:,}"
+    )
+
+
+if len(seen_samples) != 58:
+
+    raise RuntimeError(
+        f"Expected 58 samples, "
+        f"processed {len(seen_samples)}"
+    )
+
+
+if seen_samples != set(sample_to_emapper):
+
+    missing_annotations = (
+        seen_samples - set(sample_to_emapper)
+    )
+
+    missing_origin = (
+        set(sample_to_emapper) - seen_samples
+    )
+
+
+    raise RuntimeError(
+        "Sample mismatch.\n"
+        f"Missing eggNOG: {missing_annotations}\n"
+        f"Missing origin samples: {missing_origin}"
+    )
+
+
+# Finish output
+
+sort_proc.stdin.close()
+
+sort_status = sort_proc.wait()
+
+
+if sort_status != 0:
+
+    raise RuntimeError(
+        f"sort failed with exit code "
+        f"{sort_status}"
+    )
+
+
+gzip_status = gzip_proc.wait()
+
+raw_out.close()
+
+
+if gzip_status != 0:
+
+    raise RuntimeError(
+        f"gzip failed with exit code "
+        f"{gzip_status}"
+    )
+
+
+# Replace output after success
+
+os.replace(
+    OUT_TMP,
+    OUT
+)
+
+
+# Cleanup
+
+del best_orf
+del orf_to_95
+
+
+TMP_BEST.unlink(
+    missing_ok=True
+)
+
+TMP_ORF95.unlink(
+    missing_ok=True
+)
+
+
+if SORT_TMP.exists():
+
+    shutil.rmtree(
+        SORT_TMP
+    )
+
+
+# Summary
+
+print(flush=True)
+
+print("=" * 65, flush=True)
+print(
+    "ANNOTATION TRANSFER COMPLETE",
+    flush=True
+)
+print("=" * 65, flush=True)
+
+print(
+    f"Total 95NT representatives : "
+    f"{N95:,}",
+    flush=True
+)
+
+print(
+    f"Annotated 95NTs            : "
+    f"{n_annotated:,}",
+    flush=True
+)
+
+print(
+    f"Unannotated 95NTs          : "
+    f"{N95 - n_annotated:,}",
+    flush=True
+)
+
+print(
+    f"Created                    : "
+    f"{OUT}",
+    flush=True
+)
