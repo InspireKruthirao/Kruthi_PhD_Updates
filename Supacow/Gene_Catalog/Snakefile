@@ -262,6 +262,8 @@ rule gmsc_mapper:
         DB=$(bash {S}/local_copy.sh {config[gmsc_db]} cow_gmsc_db)
         echo "gmsc-mapper start: $(date)"
         {config[gmsc_bin]}/gmsc-mapper -i {input} -o {params.out} --dbdir "$DB" -t {threads} --tool diamond
+        # this GMSC-mapper version spells it "filterd"
+        [ -f {params.out}/predicted.filterd.smorf.faa ] && mv {params.out}/predicted.filterd.smorf.faa {output.predicted}
         echo "gmsc-mapper end: $(date)"
         """
 

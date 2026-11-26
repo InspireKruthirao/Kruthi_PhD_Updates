@@ -3,26 +3,21 @@
 Predict the COG category of every smORF from its neighbour genes with 490
 rules, and score each rule on the smORFs whose category is known.
 
-    python3 predict_function.py smorf_neighbourhoods.sqlite           show the results
-    python3 predict_function.py smorf_neighbourhoods.sqlite --save    also save:
-        predictions_all_smorfs.tsv   every smORF x every rule
-        combinations_results.csv     one row per rule: accuracy and coverage
-        results_by_bin.csv           the same, per bin
-    add --report for the random forest by confidence and the rules compared
-    one setting at a time:
-        report.txt                   both tables
-        random_forest_predictions.tsv  prediction and confidence per smORF
-        one_factor_comparisons.tsv   every pair of rules that differ in one setting
+    python3 predict_function.py smorf_neighbourhoods.sqlite [--save] [--report]
 
-The input (from smorf_neighbourhoods_sqlite.py) has one row per smORF with
-a JSON list of its occurrences: neighbour genes as [rank, [COG letters]],
-neighbour_info (side, same strand, distance, gap, COG ID) and the smORF's
-own COG letters (target_categories). C027/C028 are the original method.
-To add a rule, add it at the end of build_combinations().
+--save    predictions_all_smorfs.tsv (smORF x rule), combinations_results.csv
+          (accuracy and coverage per rule), results_by_bin.csv
+--report  report.txt (random forest by confidence; rules compared one setting
+          at a time), random_forest_predictions.tsv, one_factor_comparisons.tsv
+
+Input (from smorf_neighbourhoods_sqlite.py): one row per smORF with a JSON
+list of occurrences: neighbour genes as [rank, [COG letters]], neighbour_info
+(side, same strand, distance, gap, COG ID) and target_categories.
+C027/C028 are the original method. Add new rules at the end of build_combinations().
 """
 
 import contextlib
-import csv
+import inspect
 import os
 import random
 import sqlite3
@@ -37,8 +32,7 @@ import polars as pl
 
 SR = ("S", "R")
 NO_CALL = ["NO_EVIDENCE", "UNRESOLVED", "LOW_CONFIDENCE", "TOO_FEW_OCCURRENCES"]
-# groups by the winner's share of the vote (how strongly the neighbours agree,
-# not how often the guess is right): name, lowest share in %
+# groups by the winner's share of the vote: name, lowest share in %
 TIERS = (("vote >=50%", 50), ("vote 40-50%", 40), ("vote 30-40%", 30), ("vote <30%", 0))
 TIE_TOLERANCE = 1e-9
 PCT_TOLERANCE = 1e-9  # 50% may come out as 49.99999999999999
@@ -52,15 +46,14 @@ WEIGHTS = {  # weight of the neighbour at each rank (1 = closest)
     "very_steep": {r: 0.25 ** (r - 1) for r in range(1, MAX_RANK + 1)},               # 1, .25, .06, ...
 }
 
-# JSON patterns, rewritten as objects so that polars can parse them
-NEIGHBOUR = r"\[(\d+), \[([^\]]*)\]\]"
-NEIGHBOUR_AS_OBJECT = r'{"rank":${1},"cats":[${2}]}'
+# JSON rewritten as objects so that polars can parse it
+NEIGHBOUR = (r"\[(\d+), \[([^\]]*)\]\]", r'{"rank":${1},"cats":[${2}]}')
 OCCS_TYPE = pl.List(pl.Struct({
     "neighbours": pl.List(pl.Struct({"rank": pl.Int64, "cats": pl.List(pl.String)})),
     "target_categories": pl.List(pl.String),
 }))
-INFO = r'\["(up|down)", (\d+), (-?\d+), (-?\d+), ("[^"]*")\]'
-INFO_AS_OBJECT = r'{"side":"${1}","same":${2},"dist":${3},"gap":${4},"cog":${5}}'
+INFO = (r'\["(up|down)", (\d+), (-?\d+), (-?\d+), ("[^"]*")\]',
+        r'{"side":"${1}","same":${2},"dist":${3},"gap":${4},"cog":${5}}')
 INFO_TYPE = pl.List(pl.Struct({"neighbour_info": pl.List(pl.Struct(
     {"side": pl.String, "same": pl.Int8, "dist": pl.Int64, "gap": pl.Int64, "cog": pl.String}))}))
 
@@ -69,10 +62,10 @@ INFO_TYPE = pl.List(pl.Struct({"neighbour_info": pl.List(pl.Struct(
 
 @dataclass
 class Data:
-    """Everything loaded from the database. Categories are integer codes
-    (indices into labels). nb has one entry per (neighbour gene, category):
-    smorf, occ, ent (gene), rank, code, key (smorf * n_cats + code), ncat
-    (categories of the gene) and ord (position of the gene by rank)."""
+    """The database in memory. Categories are integer codes (indices into
+    labels). nb: one entry per (neighbour gene, category) with smorf, occ, ent
+    (gene), rank, code, key (smorf * n_cats + code), ncat (categories of the
+    gene) and ord (position of the gene by rank)."""
     smorfs: pl.DataFrame  # smorf, bin, smorf_id, known_category, annotated
     targets: pl.DataFrame  # smorf, cat: known categories
     labels: list          # categories, then NO_CALL
@@ -87,16 +80,19 @@ class Data:
     _voters: dict = field(default_factory=dict)
     _counts: dict = field(default_factory=dict)
 
+    @property
+    def n(self):
+        return self.smorfs.height
+
     def code(self, label):
         return self.labels.index(label)
 
     def excluded(self, codes, exclude):
-        """Is the category of each code in exclude?"""
         return np.array([c in exclude for c in self.labels[:self.n_cats]])[codes]
 
     def left(self, exclude):
-        """Per nb entry, with exclude dropped: kept?, categories left on the
-        gene (k), and its index in vote_table (vote)."""
+        """Per nb entry with exclude dropped: kept?, categories left on the
+        gene (k), index in vote_table (vote)"""
         if exclude not in self._left:
             nb = self.nb
             keep = ~self.excluded(nb["code"], exclude)
@@ -107,21 +103,20 @@ class Data:
         return self._left[exclude]
 
     def voters(self, n, exclude, multi, columns):
-        """The given columns (plus vote) of the nb entries that vote."""
+        """columns (plus vote) of the nb entries that vote; the last two are cached"""
         sel = (n, exclude, multi == "ignore", columns)
         if sel not in self._voters:
             keep, k, vote = self.left(exclude)
             keep = keep & (self.nb["rank"] <= n)
             if multi == "ignore":
                 keep &= k == 1
-            if len(self._voters) == 2:  # keep only the last two
+            if len(self._voters) == 2:
                 del self._voters[next(iter(self._voters))]
             self._voters[sel] = select({**self.nb, "vote": vote}, keep, columns + ("vote",))
         return dict(self._voters[sel])
 
     def counts(self, exclude):
-        """The kept nb entries counted by (key, rank, k), so votes can be
-        added up from counts."""
+        """Kept nb entries counted by (key, rank, k)"""
         if exclude not in self._counts:
             keep, _, vote = self.left(exclude)
             ks = self.nb["ncat"].max() + 1
@@ -134,24 +129,23 @@ class Data:
         return self._counts[exclude]
 
 
-def parse(raw, pattern, as_object, dtype):
-    """Parse the JSON of raw in 64 chunks, in parallel."""
+def parse(raw, pattern, dtype):
+    """Parse the JSON of raw in 64 chunks, in parallel"""
     step = -(-raw.height // 64)
     return pl.concat([raw.slice(i, step).lazy().select(
-        "smorf", pl.col("json").str.replace_all(pattern, as_object).str.json_decode(dtype).alias("o"))
+        "smorf", pl.col("json").str.replace_all(*pattern).str.json_decode(dtype).alias("o"))
         .explode("o", empty_as_null=True).drop_nulls("o")
         for i in range(0, raw.height, step)], parallel=True).collect()
 
 
 def load_db(db_path):
-    """Read the database once into a Data."""
     conn = sqlite3.connect(db_path)
     raw = pl.DataFrame(conn.execute(
         "SELECT bin_name, smorf_id, occurrences_json FROM smorfs ORDER BY bin_name, smorf_id"
     ).fetchall(), schema=["bin", "smorf_id", "json"], orient="row").with_row_index("smorf")
     conn.close()
 
-    occs = parse(raw, NEIGHBOUR, NEIGHBOUR_AS_OBJECT, OCCS_TYPE).with_row_index("occ").unnest("o")
+    occs = parse(raw, NEIGHBOUR, OCCS_TYPE).with_row_index("occ").unnest("o")
     nb = (occs.lazy().select("smorf", "occ", "neighbours")
           .explode("neighbours", empty_as_null=True).drop_nulls("neighbours")
           .with_row_index("ent").unnest("neighbours")
@@ -176,9 +170,9 @@ def load_db(db_path):
     d = Data(smorfs, targets, cats + NO_CALL, len(cats), occs["smorf"].to_numpy(),
              as_numpy(nb), as_numpy(nb.sort("occ", "ord", maintain_order=True)), db_path)
 
-    # gene strands, distances and COG IDs (rules C151-C208)
+    # gene strands, distances and COG IDs
     if raw.height and len(d.nb["ent"]):
-        info = (parse(raw, INFO, INFO_AS_OBJECT, INFO_TYPE).with_row_index("occ").unnest("o")
+        info = (parse(raw, INFO, INFO_TYPE).with_row_index("occ").unnest("o")
                 .explode("neighbour_info", empty_as_null=True).drop_nulls("neighbour_info")
                 .unnest("neighbour_info"))
         if info.height > d.nb["ent"].max():
@@ -188,7 +182,7 @@ def load_db(db_path):
                 x["cog"] = info["cog"]
                 d.info = x
     if d.info is None:
-        print("  (no gene distances in this database: rules C151-C208 predict nothing)", flush=True)
+        print("  (no gene distances in this database: strand/distance rules predict nothing)", flush=True)
     return d
 
 
@@ -199,9 +193,14 @@ def run_starts(a):
     return np.flatnonzero(np.r_[True, a[1:] != a[:-1]]) if len(a) else np.zeros(0, dtype=int)
 
 
+def per_smorf(d, key, weights=None):
+    """smORF x category sums at key (smorf * n_cats + code)"""
+    return np.bincount(key, weights=weights, minlength=d.n * d.n_cats).reshape(d.n, d.n_cats)
+
+
 def resolve(d, key, v, n_groups):
-    """Winner of each group from votes v at key (group * n_cats + code):
-    (code, winner's % of the votes); UNRESOLVED on a tie, NO_EVIDENCE if no votes."""
+    """Winner per group from votes v at key (group * n_cats + code): (code,
+    winner's %); UNRESOLVED on a tie, NO_EVIDENCE without votes"""
     votes = np.bincount(key, weights=v, minlength=n_groups * d.n_cats)
     present = np.zeros(n_groups * d.n_cats, dtype=bool)
     present[key] = True
@@ -212,9 +211,9 @@ def resolve(d, key, v, n_groups):
 def pick(d, keys, x, n_groups):
     """As resolve, from totals x at sorted unique keys"""
     g = keys // d.n_cats
-    starts = run_starts(g)
     if not len(g):
         return np.full(n_groups, d.code("NO_EVIDENCE")), np.zeros(n_groups)
+    starts = run_starts(g)
     top = np.maximum.reduceat(x, starts)
     win = np.abs(x - np.repeat(top, np.diff(np.r_[starts, len(g)]))) < TIE_TOLERANCE
     nwin = np.add.reduceat(win.astype(int), starts)
@@ -228,8 +227,7 @@ def pick(d, keys, x, n_groups):
 
 
 def margin(d, keys, x, n_groups):
-    """Winner's minus runner-up's % of the votes, from totals x at sorted
-    unique keys (group * n_cats + code)"""
+    """Winner's minus runner-up's % of the votes (totals x at sorted unique keys)"""
     out = np.zeros(n_groups)
     if not len(keys):
         return out
@@ -244,8 +242,7 @@ def margin(d, keys, x, n_groups):
 
 
 def break_ties(d, keys, x, score, pred):
-    """Where pred is UNRESOLVED: the tied category with the highest score
-    (per key), if only one has it"""
+    """Where pred is UNRESOLVED: the tied category with the highest score, if only one"""
     if not len(keys):
         return pred
     g = keys // d.n_cats
@@ -264,7 +261,6 @@ def break_ties(d, keys, x, score, pred):
 
 
 def select(arrays, keep, columns):
-    """columns of arrays where keep"""
     if keep.all():
         return {c: arrays[c] for c in columns}
     keep = np.flatnonzero(keep)
@@ -272,7 +268,7 @@ def select(arrays, keep, columns):
 
 
 def vote_table(d, weights, multi, background):
-    """Vote by (rank, k, code): rank weight, / k if "split", / background."""
+    """Vote by (rank, k, code): rank weight, / k if "split", / background"""
     v = np.array([np.nan] + [weights[r] for r in range(1, MAX_RANK + 1)])[:, None, None]
     ks = d.nb["ncat"].max() + 1
     if multi == "split":
@@ -283,16 +279,13 @@ def vote_table(d, weights, multi, background):
 
 
 def tally(d, weights, n, exclude, multi, background, columns=("key",)):
-    """The voting nb entries (columns) with their vote v"""
     x = d.voters(n, tuple(exclude), multi, columns)
     x["v"] = vote_table(d, weights, multi, background).take(x.pop("vote"))
     return x
 
 
-def nothing(d):
-    """NO_EVIDENCE for every smORF"""
-    n = d.smorfs.height
-    return np.full(n, d.code("NO_EVIDENCE")), np.zeros(n)
+def always(d, label="NO_EVIDENCE"):
+    return np.full(d.n, d.code(label)), np.zeros(d.n)
 
 
 def low_confidence(d, pred, low):
@@ -304,12 +297,11 @@ def low_confidence(d, pred, low):
 
 def weighted_vote(d, curve="linear", n=5, exclude=(), multi="split",
                   background=None, cutoff=None, min_occ=None, margin_cutoff=None, tiebreak=None):
-    """Neighbours (rank <= n) vote for their categories, weighted by curve,
-    over all occurrences. multi: "split", "full" or "ignore" multi-letter
-    genes. cutoff: winner needs >= cutoff %. min_occ: votes from >= min_occ
-    occurrences. margin_cutoff: winner needs >= margin_cutoff % more than
-    the runner-up. tiebreak: on a tie, the category of the closest gene
-    ("closest") or the most common category among neighbours ("common")."""
+    """Neighbours (rank <= n) of all occurrences vote, weighted by curve.
+    multi: "split", "full" or "ignore" multi-letter genes. cutoff: winner
+    needs >= cutoff %. min_occ: votes from >= min_occ occurrences.
+    margin_cutoff: winner needs >= this % more than the runner-up. tiebreak:
+    "closest" (closest gene's category) or "common" (most common among neighbours)."""
     c = d.counts(tuple(exclude))
     use = c["rank"] <= n
     if multi == "ignore":
@@ -317,25 +309,23 @@ def weighted_vote(d, curve="linear", n=5, exclude=(), multi="split",
     c = select(c, use, ("key", "vote", "n"))
     v = vote_table(d, WEIGHTS[curve], multi, background).take(c["vote"]) * c["n"]
     starts = run_starts(c["key"])
-    n_smorfs = d.smorfs.height
     keys, totals = c["key"][starts], np.add.reduceat(v, starts) if len(v) else v
-    pred, pct = pick(d, keys, totals, n_smorfs)
+    pred, pct = pick(d, keys, totals, d.n)
     if tiebreak == "closest":
         x = d.voters(n, tuple(exclude), multi, ("key", "rank"))
-        closest = np.full(n_smorfs * d.n_cats, MAX_RANK + 1)
+        closest = np.full(d.n * d.n_cats, MAX_RANK + 1)
         np.minimum.at(closest, x["key"], x["rank"])
         pred = break_ties(d, keys, totals, -closest[keys].astype(float), pred)
     elif tiebreak == "common":
-        near = d.nb["rank"] <= n
-        common = np.bincount(d.nb["code"][near], minlength=d.n_cats).astype(float)
+        common = np.bincount(d.nb["code"][d.nb["rank"] <= n], minlength=d.n_cats).astype(float)
         pred = break_ties(d, keys, totals, common[keys % d.n_cats], pred)
     if cutoff:
         pred = low_confidence(d, pred, pct < cutoff - PCT_TOLERANCE)
     if margin_cutoff:
-        pred = low_confidence(d, pred, margin(d, keys, totals, n_smorfs) < margin_cutoff - PCT_TOLERANCE)
+        pred = low_confidence(d, pred, margin(d, keys, totals, d.n) < margin_cutoff - PCT_TOLERANCE)
     if min_occ:
         x = d.voters(n, tuple(exclude), multi, ("smorf", "occ"))
-        few = np.bincount(x["smorf"][run_starts(x["occ"])], minlength=n_smorfs) < min_occ
+        few = np.bincount(x["smorf"][run_starts(x["occ"])], minlength=d.n) < min_occ
         pred = np.where(few, d.code("TOO_FEW_OCCURRENCES"), pred)
         pct = np.where(few, 0.0, pct)
     return pred, pct
@@ -343,67 +333,57 @@ def weighted_vote(d, curve="linear", n=5, exclude=(), multi="split",
 
 def majority(d, n=5, k=4, exclude=()):
     """Most common category among the n closest neighbours of all
-    occurrences, if at least k/n of them have it (ties: first counted)."""
+    occurrences, if >= k/n of them have it (ties: first counted)"""
     nb = d.nb_by_rank
-    keep = (nb["ord"] < n) & ~d.excluded(nb["code"], exclude)
-    key, ent = select(nb, keep, ("key", "ent")).values()
-    n_smorfs = d.smorfs.height
-    total = np.bincount(key[run_starts(ent)] // d.n_cats, minlength=n_smorfs)
-    counts = np.bincount(key, minlength=n_smorfs * d.n_cats).reshape(n_smorfs, d.n_cats)
-    first = np.full(n_smorfs * d.n_cats, len(key))
+    key, ent = select(nb, (nb["ord"] < n) & ~d.excluded(nb["code"], exclude), ("key", "ent")).values()
+    total = np.bincount(key[run_starts(ent)] // d.n_cats, minlength=d.n)
+    counts = per_smorf(d, key)
+    first = np.full(d.n * d.n_cats, len(key))
     np.minimum.at(first, key, np.arange(len(key)))
     top = counts.max(axis=1)
-    top_cat = np.where(counts == top[:, None], first.reshape(n_smorfs, d.n_cats), len(key)).argmin(axis=1)
-    share = np.divide(top, total, out=np.zeros(n_smorfs), where=total > 0)
+    top_cat = np.where(counts == top[:, None], first.reshape(d.n, d.n_cats), len(key)).argmin(axis=1)
+    share = np.divide(top, total, out=np.zeros(d.n), where=total > 0)
     agree = (total > 0) & (share >= k / n)
-    return (np.where(agree, top_cat, d.code("NO_EVIDENCE")),
-            np.where(agree, share * 100, 0.0))
+    return np.where(agree, top_cat, d.code("NO_EVIDENCE")), np.where(agree, share * 100, 0.0)
 
 
 def consensus(d, curve="linear", n=5, exclude=()):
-    """Each occurrence predicts by weighted vote, then occurrences vote."""
+    """Each occurrence predicts by weighted vote, then occurrences vote"""
     x = tally(d, WEIGHTS[curve], n, exclude, "split", None, ("occ", "code"))
     new = np.r_[True, x["occ"][1:] != x["occ"][:-1]][:len(x["occ"])]
     occ_pred, _ = resolve(d, (np.cumsum(new) - 1) * d.n_cats + x["code"], x["v"], new.sum())
     made = occ_pred < d.n_cats
     smorf = d.occ_smorf[x["occ"][new][made]]
-    return resolve(d, smorf.astype(np.int64) * d.n_cats + occ_pred[made], np.ones(made.sum()),
-                   d.smorfs.height)
+    return resolve(d, smorf.astype(np.int64) * d.n_cats + occ_pred[made], np.ones(made.sum()), d.n)
 
 
 def control_always(d, category, exclude=()):
-    """Control: always the same category"""
-    n = d.smorfs.height
-    return np.full(n, d.code(category)), np.zeros(n)
+    return always(d, category)
 
 
 def control_random(d, categories, freqs, rng, exclude=()):
-    """Control: a random category, weighted by how common it is"""
-    n = d.smorfs.height
-    return np.array([d.code(c) for c in rng.choices(categories, freqs, k=n)]), np.zeros(n)
+    """A random category, weighted by how common it is"""
+    return np.array([d.code(c) for c in rng.choices(categories, freqs, k=d.n)]), np.zeros(d.n)
 
 
 def control_shuffled(d, rng, exclude=()):
-    """Control: the original method on another random smORF's neighbours"""
-    n = d.smorfs.height
-    other = np.array([rng.randrange(n) for _ in range(n)])
+    """The original method on another random smORF's neighbours"""
+    other = np.array([rng.randrange(d.n) for _ in range(d.n)])
     pred, pct = weighted_vote(d)
     return pred[other], pct[other]
 
 
 def presence(d, n, exclude):
-    """smORF x category: in how many occurrences the category is within
-    rank n; and the number of occurrences per smORF (cached, read-only)."""
-    made = ("presence", n, tuple(exclude))
-    if made not in d.cache:
+    """smORF x category: occurrences with the category within rank n; and
+    occurrences per smORF (cached)"""
+    key = ("presence", n, tuple(exclude))
+    if key not in d.cache:
         nb = d.nb
         keep = (nb["rank"] <= n) & ~d.excluded(nb["code"], exclude)
         pair = np.unique(nb["occ"][keep].astype(np.int64) * d.n_cats + nb["code"][keep])
-        key = d.occ_smorf[pair // d.n_cats].astype(np.int64) * d.n_cats + pair % d.n_cats
-        n_smorfs = d.smorfs.height
-        count = np.bincount(key, minlength=n_smorfs * d.n_cats).reshape(n_smorfs, d.n_cats)
-        d.cache[made] = count, np.bincount(d.occ_smorf, minlength=n_smorfs)
-    return d.cache[made]
+        sk = d.occ_smorf[pair // d.n_cats].astype(np.int64) * d.n_cats + pair % d.n_cats
+        d.cache[key] = per_smorf(d, sk), np.bincount(d.occ_smorf, minlength=d.n)
+    return d.cache[key]
 
 
 def top_of(d, score, eligible):
@@ -416,10 +396,10 @@ def top_of(d, score, eligible):
 
 
 def conserved(d, n=3, exclude=(), min_frac=None):
-    """Category within rank n in the most occurrences (if in >= min_frac)."""
+    """Category within rank n in the most occurrences (if in >= min_frac)"""
     count, n_occ = presence(d, n, exclude)
     pred, col = top_of(d, count, count > 0)
-    frac = count[np.arange(len(pred)), col] / np.maximum(n_occ, 1)
+    frac = count[np.arange(d.n), col] / np.maximum(n_occ, 1)
     pct = np.where(pred < d.n_cats, frac * 100, 0.0)
     if min_frac:
         pred = low_confidence(d, pred, frac < min_frac - PCT_TOLERANCE)
@@ -427,8 +407,7 @@ def conserved(d, n=3, exclude=(), min_frac=None):
 
 
 def same_cog_id_occurrences(d):
-    """Per occurrence: are the two closest genes (rank 1, one per side)
-    in the same COG (same non-empty COG ID, e.g. COG0094)?"""
+    """Per occurrence: are the two rank-1 genes (one per side) in the same COG ID?"""
     nb = d.nb
     first = run_starts(nb["ent"])  # one entry per gene
     r1 = first[nb["rank"][first] == 1]
@@ -437,26 +416,23 @@ def same_cog_id_occurrences(d):
     order = np.argsort(occ, kind="stable")
     occ, cog = occ[order], cog[order]
     starts = run_starts(occ)
-    two = starts[np.diff(np.r_[starts, len(occ)]) == 2]  # occurrences with a rank-1 gene on both sides
-    good = occ[two][(cog[two] == cog[two + 1]) & (cog[two] != "")]
+    two = starts[np.diff(np.r_[starts, len(occ)]) == 2]  # a rank-1 gene on both sides
     ok = np.zeros(len(d.occ_smorf), dtype=bool)
-    ok[good] = True
+    ok[occ[two][(cog[two] == cog[two + 1]) & (cog[two] != "")]] = True
     return ok
 
 
 def sandwiched(d, exclude=(), min_genomes=1, min_frac=None, same_strand=False, max_dist=None,
                same_cog_id=False, tiebreak=None):
     """Closest gene on both sides shares a category, in >= min_genomes
-    occurrences (and >= min_frac of them). Optionally both genes on the
-    target's strand and/or within max_dist bp, and/or in the same COG
-    (same_cog_id: same COG ID, not only the same letter). tiebreak="closest":
-    if categories tie, the one whose sandwiching genes are closer on
-    average wins (still no prediction if that ties too)."""
+    occurrences (and >= min_frac of them). Optionally both on the target's
+    strand, within max_dist bp, in the same COG ID. tiebreak="closest": on a
+    tie, the category whose sandwiching genes are closer on average."""
     nb = d.nb
     keep = (nb["rank"] == 1) & ~d.excluded(nb["code"], exclude)
     if same_strand or max_dist is not None or same_cog_id or tiebreak:
         if d.info is None:
-            return nothing(d)
+            return always(d)
         ok = np.ones(len(d.info["occ"]), dtype=bool)
         if same_strand:
             ok &= d.info["same"] == 1
@@ -469,55 +445,49 @@ def sandwiched(d, exclude=(), min_genomes=1, min_frac=None, same_strand=False, m
                                  return_inverse=True, return_counts=True)
     both = pair[k >= 2]  # on both rank-1 genes
     key = d.occ_smorf[both // d.n_cats].astype(np.int64) * d.n_cats + both % d.n_cats
-    n_smorfs = d.smorfs.height
-    count = np.bincount(key, minlength=n_smorfs * d.n_cats).reshape(n_smorfs, d.n_cats)
-    n_occ = np.bincount(d.occ_smorf, minlength=n_smorfs)
+    count = per_smorf(d, key)
+    n_occ = np.bincount(d.occ_smorf, minlength=d.n)
     eligible = count >= max(min_genomes, 1)
     pred, col = top_of(d, count, eligible)
     if tiebreak == "closest":
-        # mean distance of the sandwiching genes, per smORF x category
         dist = np.bincount(inverse, weights=d.info["dist"][nb["ent"][keep]].astype(float), minlength=len(pair))
-        total = np.bincount(key, weights=dist[k >= 2], minlength=n_smorfs * d.n_cats).reshape(n_smorfs, d.n_cats)
-        mean = np.divide(total, 2 * count, out=np.full(total.shape, np.inf), where=count > 0)
+        mean = np.divide(per_smorf(d, key, dist[k >= 2]), 2 * count, out=np.full(count.shape, np.inf),
+                         where=count > 0)
         tied = pred == d.code("UNRESOLVED")
         top = np.where(eligible, count, -1).max(axis=1)
-        cand = eligible & (count == top[:, None]) & tied[:, None]
-        m = np.where(cand, mean, np.inf)
+        m = np.where(eligible & (count == top[:, None]) & tied[:, None], mean, np.inf)
         best = m.min(axis=1)
         close = np.isfinite(m) & (np.abs(m - np.where(np.isfinite(best), best, 0.0)[:, None]) < TIE_TOLERANCE)
-        unique = close.sum(axis=1) == 1
-        fix = tied & unique & np.isfinite(best)
+        fix = tied & (close.sum(axis=1) == 1) & np.isfinite(best)
         col = np.where(fix, m.argmin(axis=1), col)
         pred = np.where(fix, col, pred)
-    frac = count[np.arange(n_smorfs), col] / np.maximum(n_occ, 1)
+    frac = count[np.arange(d.n), col] / np.maximum(n_occ, 1)
     if min_frac:
-        pred = np.where((pred < d.n_cats) & (frac < min_frac - PCT_TOLERANCE), d.code("NO_EVIDENCE"), pred)
+        pred = low_confidence(d, pred, frac < min_frac - PCT_TOLERANCE)
     return pred, np.where(pred < d.n_cats, frac * 100, 0.0)
 
 
 def enriched(d, n=3, exclude=(), min_genomes=2):
-    """Category most enriched within rank n compared with all occurrences."""
+    """Category most enriched within rank n compared with all occurrences"""
     count, n_occ = presence(d, n, exclude)
     frac = count / np.maximum(n_occ, 1)[:, None]
     background = count.sum(axis=0) / max(n_occ.sum(), 1)
     enrichment = np.divide(frac, background, out=np.zeros_like(frac), where=background > 0)
     pred, col = top_of(d, enrichment, count >= min_genomes)
-    return pred, np.where(pred < d.n_cats, frac[np.arange(len(pred)), col] * 100, 0.0)
+    return pred, np.where(pred < d.n_cats, frac[np.arange(d.n), col] * 100, 0.0)
 
 
 def conserved_vote(d, curve="very_steep", n=3, exclude=()):
-    """Weighted vote times the share of occurrences that have the category."""
+    """Weighted vote times the share of occurrences that have the category"""
     x = tally(d, WEIGHTS[curve], n, exclude, "split", None)
-    n_smorfs = d.smorfs.height
-    votes = np.bincount(x["key"], weights=x["v"], minlength=n_smorfs * d.n_cats)
     count, n_occ = presence(d, n, exclude)
-    scaled = votes * (count / np.maximum(n_occ, 1)[:, None]).ravel()
+    scaled = (per_smorf(d, x["key"], x["v"]) * (count / np.maximum(n_occ, 1)[:, None])).ravel()
     keys = np.flatnonzero(count.ravel() > 0)
-    return pick(d, keys, scaled[keys], n_smorfs)
+    return pick(d, keys, scaled[keys], d.n)
 
 
 def agree(d, first, second, exclude=()):
-    """Predict only where two (method, settings) agree."""
+    """Predict only where two (method, settings) agree"""
     p1, s1 = first[0](d, **first[1])
     p2, _ = second[0](d, **second[1])
     ok = (p1 < d.n_cats) & (p1 == p2)
@@ -526,132 +496,116 @@ def agree(d, first, second, exclude=()):
 
 def in_operon(d, max_gap):
     """Per gene: it and every gene up to the target are on the target's
-    strand with <= max_gap bp between them."""
+    strand with <= max_gap bp between them"""
     info = d.info
     fail = ~((info["same"] == 1) & (info["gap"] <= max_gap))
     run = np.r_[True, (info["occ"][1:] != info["occ"][:-1]) | (info["side"][1:] != info["side"][:-1])]
     failed = np.cumsum(fail)
     starts = np.flatnonzero(run)
-    before = np.repeat(failed[starts] - fail[starts], np.diff(np.r_[starts, len(fail)]))
-    return failed - before == 0
+    return failed - np.repeat(failed[starts] - fail[starts], np.diff(np.r_[starts, len(fail)])) == 0
 
 
-def vote_where(d, gene_ok, weight, n, exclude, cutoff=None):
-    """Weighted vote (split) of the genes with gene_ok, rank <= n."""
-    nb = d.nb
+def rank_weight(d, curve):
+    return np.array([0.0] + [WEIGHTS[curve][r] for r in range(1, MAX_RANK + 1)])[d.nb["rank"]]
+
+
+def vote_where(d, gene_ok, weight=None, curve="linear", n=5, exclude=(), cutoff=None):
+    """Weighted vote (split) of the genes with gene_ok and rank <= n"""
+    if d.info is None:
+        return always(d)
+    weight = rank_weight(d, curve) if weight is None else weight
     keep, k, _ = d.left(tuple(exclude))
-    use = keep & (nb["rank"] <= n) & gene_ok[nb["ent"]]
-    pred, pct = resolve(d, nb["key"][use], weight[use] / k[use], d.smorfs.height)
+    use = keep & (d.nb["rank"] <= n) & gene_ok(d.info)[d.nb["ent"]]
+    pred, pct = resolve(d, d.nb["key"][use], weight[use] / k[use], d.n)
     if cutoff:
         pred = low_confidence(d, pred, pct < cutoff - PCT_TOLERANCE)
     return pred, pct
 
 
-def rank_weight(d, curve):
-    """Per nb entry: the weight of its rank"""
-    return np.array([0.0] + [WEIGHTS[curve][r] for r in range(1, MAX_RANK + 1)])[d.nb["rank"]]
-
-
 def operon_vote(d, max_gap=100, curve="linear", n=5, exclude=(), cutoff=None):
-    """Only genes in the target gene's operon vote."""
-    if d.info is None:
-        return nothing(d)
-    return vote_where(d, in_operon(d, max_gap), rank_weight(d, curve), n, exclude, cutoff)
+    """Only genes in the target gene's operon vote"""
+    return vote_where(d, lambda i: in_operon(d, max_gap), curve=curve, n=n, exclude=exclude, cutoff=cutoff)
 
 
 def side_vote(d, where, curve="linear", n=5, exclude=()):
-    """Only genes upstream ("up"), downstream ("down") or on the target's
-    strand at any distance ("same_strand") vote."""
-    if d.info is None:
-        return nothing(d)
-    gene_ok = {"up": d.info["side"] == 0, "down": d.info["side"] == 1,
-               "same_strand": d.info["same"] == 1}[where]
-    return vote_where(d, gene_ok, rank_weight(d, curve), n, exclude)
+    """Only upstream ("up"), downstream ("down") or same-strand genes vote"""
+    ok = {"up": lambda i: i["side"] == 0, "down": lambda i: i["side"] == 1,
+          "same_strand": lambda i: i["same"] == 1}[where]
+    return vote_where(d, ok, curve=curve, n=n, exclude=exclude)
 
 
 def close_vote(d, side="down", max_dist=100, curve="linear", n=5, exclude=()):
-    """Only genes on one side ("up"/"down"), on the target's strand and
-    within max_dist bp of it vote (the settings that helped most when rules
-    were compared one setting at a time)."""
-    if d.info is None:
-        return nothing(d)
-    gene_ok = ((d.info["side"] == (1 if side == "down" else 0)) & (d.info["same"] == 1)
-               & (d.info["dist"] <= max_dist))
-    return vote_where(d, gene_ok, rank_weight(d, curve), n, exclude)
+    """Only genes on one side, on the target's strand and within max_dist bp vote"""
+    return vote_where(d, lambda i: (i["side"] == (side == "down")) & (i["same"] == 1) & (i["dist"] <= max_dist),
+                      curve=curve, n=n, exclude=exclude)
 
 
 def distance_vote(d, half=500, n=5, exclude=(), max_gap=None):
-    """Vote halves every `half` bp from the target gene. max_gap: only genes
-    in the target gene's operon vote."""
+    """Vote halves every `half` bp from the target gene; max_gap: operon genes only"""
     if d.info is None:
-        return nothing(d)
+        return always(d)
     weight = 0.5 ** (np.maximum(d.info["dist"][d.nb["ent"]], 0) / half)
-    gene_ok = np.ones(len(d.info["occ"]), dtype=bool) if max_gap is None else in_operon(d, max_gap)
-    return vote_where(d, gene_ok, weight, n, exclude)
+    ok = (lambda i: np.ones(len(i["occ"]), dtype=bool)) if max_gap is None else (lambda i: in_operon(d, max_gap))
+    return vote_where(d, ok, weight, n=n, exclude=exclude)
 
 
-# ------------------------------------- similar neighbourhoods (Annoy, Voyager) ----
+# ----------------------------------------------- similar neighbourhoods ----
 
 def context_vectors(d, max_rank=3, dims=512):
-    """smORF x COG ID: share of occurrences with the COG ID within
-    max_rank, for the dims most common COG IDs."""
+    """smORF x COG ID: share of occurrences with the COG ID within max_rank,
+    for the dims most common COG IDs"""
     key = ("ctx", max_rank, dims)
     if key not in d.cache:
         if d.info is None:
             return None
         nb = d.nb
-        first = run_starts(nb["ent"])  # one entry per gene
+        first = run_starts(nb["ent"])
         use = first[nb["rank"][first] <= max_rank]
         cog = d.info["cog"].gather(nb["ent"][use]).to_numpy()
-        occ = nb["occ"][use]
         ok = cog != ""
         ids, code = np.unique(cog[ok], return_inverse=True)
-        pair = np.unique(occ[ok].astype(np.int64) * len(ids) + code)
-        sm = d.occ_smorf[pair // len(ids)].astype(np.int64)
-        c = pair % len(ids)
+        pair = np.unique(nb["occ"][use][ok].astype(np.int64) * len(ids) + code)
+        sm, c = d.occ_smorf[pair // len(ids)].astype(np.int64), pair % len(ids)
         top = np.argsort(-np.bincount(np.unique(sm * len(ids) + c) % len(ids), minlength=len(ids)))[:dims]
         col = np.full(len(ids), -1)
         col[top] = np.arange(len(top))
         keep = col[c] >= 0
-        print(f"  C185-C192: using {len(top)} of {len(ids)} COG IDs, {100 * keep.mean():.1f}% of "
+        print(f"  context vectors: {len(top)} of {len(ids)} COG IDs, {100 * keep.mean():.1f}% of "
               f"(occurrence, COG ID) pairs", flush=True)
-        n_smorfs = d.smorfs.height
         x = np.bincount(sm[keep] * len(top) + col[c[keep]],
-                        minlength=n_smorfs * len(top)).reshape(n_smorfs, len(top)).astype(np.float32)
-        x /= np.maximum(np.bincount(d.occ_smorf, minlength=n_smorfs), 1)[:, None]
+                        minlength=d.n * len(top)).reshape(d.n, len(top)).astype(np.float32)
+        x /= np.maximum(np.bincount(d.occ_smorf, minlength=d.n), 1)[:, None]
         d.cache[key] = x
     return d.cache[key]
 
 
 def letter_vectors(d, curve="linear", n=5):
-    """smORF x (side, COG letter): the letters of the n closest genes on each
-    side, closer genes weighted more (curve), multi-letter genes split,
-    averaged over occurrences. Upstream letters first, then downstream."""
+    """smORF x (side, COG letter): letters of the n closest genes per side,
+    weighted by curve, multi-letter genes split, averaged over occurrences"""
     key = ("letters", curve, n)
     if key not in d.cache:
         nb = d.nb
         use = nb["rank"] <= n
         side = (d.info["side"][nb["ent"][use]].astype(np.int64) if d.info is not None
                 else np.zeros(use.sum(), dtype=np.int64))
-        w = rank_weight(d, curve)[use] / nb["ncat"][use]
-        n_smorfs, width = d.smorfs.height, 2 * d.n_cats
+        width = 2 * d.n_cats
         x = np.bincount(nb["smorf"][use].astype(np.int64) * width + side * d.n_cats + nb["code"][use],
-                        weights=w, minlength=n_smorfs * width).reshape(n_smorfs, width)
-        x /= np.maximum(np.bincount(d.occ_smorf, minlength=n_smorfs), 1)[:, None]
+                        weights=rank_weight(d, curve)[use] / nb["ncat"][use],
+                        minlength=d.n * width).reshape(d.n, width)
+        x /= np.maximum(np.bincount(d.occ_smorf, minlength=d.n), 1)[:, None]
         d.cache[key] = x.astype(np.float32)
     return d.cache[key]
 
 
 def exact_nearest(x, who, m, block=1024):
-    """For each row of x[who]: its m most cosine-similar rows (as indices
-    into x, most similar first) and their similarity, by brute force. Ties
-    go to the lower index (a tiny offset per column: many smORFs have
-    identical vectors, and np.argpartition is very slow with many ties)."""
+    """For each row of x[who]: its m most cosine-similar rows (indices into x)
+    and their similarity, by brute force. Ties go to the lower index (a tiny
+    offset per column; np.argpartition is very slow with many ties)."""
     xs = x[who] / np.maximum(np.linalg.norm(x[who], axis=1, keepdims=True), 1e-12)
     m = min(m, len(who))
     nn = np.empty((len(who), m), dtype=np.int64)
     sim = np.empty((len(who), m))
-    offset = np.arange(len(who)) * 1e-13  # < 2e-8, far below float32 precision of the similarities
+    offset = np.arange(len(who)) * 1e-13  # far below float32 precision
 
     def one(b):
         s = (xs[b:b + block] @ xs.T).astype(np.float64) - offset
@@ -673,8 +627,8 @@ def exact_nearest(x, who, m, block=1024):
 
 
 def target_genes(d):
-    """(smorf, gene) pairs of target genes (sample|Original_ID), sorted;
-    None if the database has no neighbours table."""
+    """(smorf, gene, n_genes) of target genes (sample|Original_ID), sorted;
+    None without a neighbours table"""
     if "targets" not in d.cache:
         d.cache["targets"] = None
         conn = sqlite3.connect(d.db_path)
@@ -688,9 +642,8 @@ def target_genes(d):
             t = (pl.DataFrame(rows, schema=["occ_id", "original_id"], orient="row")
                  .with_columns(parts=pl.col("occ_id").str.split("|"))
                  .select(smorf_id=pl.col("parts").list.get(0),
-                         gene=pl.col("parts").list.get(1) + "|" + pl.col("original_id")))
-            index = d.smorfs.select("smorf_id", smorf=pl.col("smorf").cast(pl.Int64))
-            t = t.join(index, on="smorf_id", how="inner")
+                         gene=pl.col("parts").list.get(1) + "|" + pl.col("original_id"))
+                 .join(d.smorfs.select("smorf_id", smorf=pl.col("smorf").cast(pl.Int64)), on="smorf_id"))
             gene = t["gene"].cast(pl.Categorical).to_physical().to_numpy().astype(np.int64)
             pair = np.unique(t["smorf"].to_numpy() * (gene.max() + 1) + gene)
             d.cache["targets"] = (pair // (gene.max() + 1), pair % (gene.max() + 1), gene.max() + 1)
@@ -726,11 +679,9 @@ def cpus():
 
 
 def nearest(d, engine, k, max_rank, dims, vectors="cog_ids", **opts):
-    """For each smORF with a context vector (who): its k + 1 most similar
-    smORFs (nn, -1 if none) and their cosine similarity (sim). engine:
-    "annoy", "voyager" (approximate) or "exact". vectors: "cog_ids" (share
-    of occurrences with each COG ID within max_rank) or "letters"
-    (letter_vectors). Cached."""
+    """For each smORF with a vector (who): its k + 1 most similar smORFs (nn,
+    -1 if none) and cosine similarity (sim). engine: "annoy", "voyager"
+    (approximate), "exact" or "faiss". vectors: "cog_ids" or "letters". Cached."""
     x = context_vectors(d, max_rank, dims) if vectors == "cog_ids" else letter_vectors(d)
     if x is None:
         return None
@@ -740,12 +691,12 @@ def nearest(d, engine, k, max_rank, dims, vectors="cog_ids", **opts):
     who = np.flatnonzero(x.any(axis=1))
     m = k + 1
     nn = np.full((len(who), m), -1, dtype=np.int64)
-    dist = np.zeros((len(who), m))
+    sim = np.zeros((len(who), m))
     if engine == "annoy":
         try:
             from annoy import AnnoyIndex
         except ImportError:
-            print("  (python-annoy not installed: rules C185-C188 predict nothing)", flush=True)
+            print("  (python-annoy not installed: the Annoy rules predict nothing)", flush=True)
             return None
         ikey = ("annoy index", max_rank, dims, vectors, opts["n_trees"])
         if ikey not in d.cache:
@@ -761,16 +712,15 @@ def nearest(d, engine, k, max_rank, dims, vectors="cog_ids", **opts):
             for row in rows:
                 got, dj = index.get_nns_by_item(int(who[row]), m, include_distances=True)
                 nn[row, :len(got)] = got
-                dist[row, :len(got)] = dj
+                sim[row, :len(got)] = 1.0 - np.square(dj) / 2  # angular distance -> cosine
 
         with ThreadPoolExecutor(cpus()) as pool:  # same results as one thread
             list(pool.map(search, np.array_split(np.arange(len(who)), 16 * cpus())))
-        sim = 1.0 - dist * dist / 2  # angular distance -> cosine
     elif engine == "voyager":
         try:
             from voyager import Index, Space
         except ImportError:
-            print("  (voyager not installed: rules C189-C192 predict nothing)", flush=True)
+            print("  (voyager not installed: the Voyager rules predict nothing)", flush=True)
             return None
         ikey = ("voyager index", max_rank, dims, vectors, opts["M"], opts["ef_construction"])
         if ikey not in d.cache and len(who):
@@ -782,44 +732,45 @@ def nearest(d, engine, k, max_rank, dims, vectors="cog_ids", **opts):
             m = min(m, len(who))
             got, dj = d.cache[ikey].query(x[who], k=m, query_ef=max(opts["query_ef"], m))
             nn[:, :m] = got.astype(np.int64)
-            dist[:, :m] = dj.astype(np.float64)
-        sim = 1.0 - dist  # cosine distance -> cosine
-    elif engine == "exact":
-        ikey = ("exact search", max_rank, dims, vectors)  # once for the largest k used (25), then cut
+            sim[:, :m] = 1.0 - dj.astype(np.float64)  # cosine distance -> cosine
+    elif engine in ("exact", "faiss"):
+        # searched once for the largest k used (25), then cut
+        ikey = (f"{engine} search", max_rank, dims, vectors)
         if ikey not in d.cache or d.cache[ikey][0].shape[1] < m:
-            d.cache[ikey] = exact_nearest(x, who, max(m, 26)) if len(who) else (nn, dist)
-        got, s = d.cache[ikey]
-        w = min(m, got.shape[1])
-        nn[:, :w], dist[:, :w] = got[:, :w], s[:, :w]
-        sim = dist  # already cosine
-    elif engine == "faiss":
-        # the same exact search as "exact", with FAISS (Meta's similarity-search
-        # library): inner product of the normalised vectors = cosine similarity
-        try:
-            import faiss
-        except ImportError:
-            print("  (faiss not installed: the FAISS rules predict nothing)", flush=True)
-            return None
-        ikey = ("faiss search", max_rank, dims, vectors)  # once for the largest k used (25), then cut
-        if ikey not in d.cache or d.cache[ikey][0].shape[1] < m:
-            if len(who):
-                faiss.omp_set_num_threads(cpus())
-                xs = np.ascontiguousarray(x[who], dtype=np.float32)
-                faiss.normalize_L2(xs)
-                index = faiss.IndexFlatIP(xs.shape[1])
-                index.add(xs)
-                s, got = index.search(xs, min(max(m, 26), len(who)))
-                d.cache[ikey] = (np.where(got >= 0, who[np.maximum(got, 0)], -1), s.astype(np.float64))
+            if engine == "exact":
+                d.cache[ikey] = exact_nearest(x, who, max(m, 26)) if len(who) else (nn, sim)
             else:
-                d.cache[ikey] = (nn, dist)
+                try:
+                    import faiss
+                except ImportError:
+                    print("  (faiss not installed: the FAISS rules predict nothing)", flush=True)
+                    return None
+                if len(who):  # inner product of normalised vectors = cosine
+                    faiss.omp_set_num_threads(cpus())
+                    xs = np.ascontiguousarray(x[who], dtype=np.float32)
+                    faiss.normalize_L2(xs)
+                    index = faiss.IndexFlatIP(xs.shape[1])
+                    index.add(xs)
+                    s, got = index.search(xs, min(max(m, 26), len(who)))
+                    d.cache[ikey] = (np.where(got >= 0, who[np.maximum(got, 0)], -1), s.astype(np.float64))
+                else:
+                    d.cache[ikey] = (nn, sim)
         got, s = d.cache[ikey]
         w = min(m, got.shape[1])
-        nn[:, :w], dist[:, :w] = got[:, :w], s[:, :w]
-        sim = dist  # already cosine
+        nn[:, :w], sim[:, :w] = got[:, :w], s[:, :w]
     else:
         raise ValueError(f"unknown search engine: {engine}")
     d.cache[key] = (who, nn, np.where(nn >= 0, sim, 0.0))
     return d.cache[key]
+
+
+def known_codes(d, exclude=()):
+    """Known (smorf, code) pairs, not excluded, sorted by smORF"""
+    t = (d.targets.filter(~pl.col("cat").is_in(list(exclude)))
+         .select(pl.col("smorf").cast(pl.Int64), code=pl.col("cat").cast(pl.Enum(d.labels[:d.n_cats]))
+                 .to_physical().cast(pl.Int64))
+         .sort("smorf", maintain_order=True))
+    return t["smorf"].to_numpy(), t["code"].to_numpy()
 
 
 def similar_vote(d, engine="annoy", k=10, max_rank=3, dims=512, exclude=(), vectors="cog_ids", **opts):
@@ -829,119 +780,106 @@ def similar_vote(d, engine="annoy", k=10, max_rank=3, dims=512, exclude=(), vect
     defaults = {"annoy": {"n_trees": 20}, "voyager": {"M": 12, "ef_construction": 200, "query_ef": 100}}
     found = nearest(d, engine, k, max_rank, dims, vectors, **{**defaults.get(engine, {}), **opts})
     if found is None:
-        return nothing(d)
+        return always(d)
     who, nn, sim = found
-
     other = (nn >= 0) & (nn != who[:, None])
     use = other & (np.cumsum(other, axis=1) <= k)  # first k others
     i = np.repeat(who, use.sum(axis=1)).astype(np.int64)
     j, s = nn[use], sim[use]
 
-    known = d.targets.filter(~pl.col("cat").is_in(list(exclude)))
-    known_smorf = known["smorf"].to_numpy().astype(np.int64)
-    order = np.argsort(known_smorf, kind="stable")
-    known_smorf = known_smorf[order]
-    known_code = known["cat"].cast(pl.Enum(d.labels[:d.n_cats])).to_physical().to_numpy().astype(np.int64)[order]
-    n_known = np.bincount(known_smorf, minlength=d.smorfs.height)
+    known_smorf, known_code = known_codes(d, exclude)
+    n_known = np.bincount(known_smorf, minlength=d.n)
     first_known = np.r_[0, np.cumsum(n_known)][:-1]
-
     ok = (n_known[j] > 0) & (s > SIM_TOLERANCE)
-    targets = target_genes(d)
-    if targets is not None:
+    if (targets := target_genes(d)) is not None:
         ok &= ~share_gene(i, j, targets)
     i, j, s = i[ok], j[ok], s[ok]
     if not len(i):
-        return nothing(d)
-
+        return always(d)
     n = n_known[j]  # one vote per category of the neighbour
     pos = np.repeat(first_known[j], n) + (np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n))
-    w = np.repeat(s / n, n)
-    keys = np.repeat(i, n) * d.n_cats + known_code[pos]
-    return resolve(d, keys, w, d.smorfs.height)
+    return resolve(d, np.repeat(i, n) * d.n_cats + known_code[pos], np.repeat(s / n, n), d.n)
 
 
-# ------------------------------------------------------- random forest ----
+# ------------------------------------------------------ machine learning ----
 
 FOREST_POSITIONS = 5  # genes per side used as features
 FOREST_SEED = 0       # also the seed of the TRAIN/TEST halves in cascade.py
+FOREST_DROP = {"strand": ("_same_strand",), "distance": ("_log_distance", "_overlaps")}
+GROUP_SIM = 0.9       # annotated smORFs at least this similar go in the same half
+ML_MODELS = {  # name used in the rules: text in the rule
+    "boosting":     "gradient boosting (HistGradientBoosting)",
+    "extra_trees":  "extra trees (more randomised random forest)",
+    "logistic":     "logistic regression",
+    "naive_bayes":  "naive Bayes (Gaussian)",
+    "knn":          "k-nearest neighbours (25 most similar smORFs, closer ones count more)",
+    "mlp":          "neural network (MLP, one hidden layer of 128)",
+}
+ENSEMBLE = ("forest", "boosting", "extra_trees", "logistic", "mlp")
 
 
-def ml_features(d, cats=None, by="smorf", occurrences=True):
-    """Features for the random forest. Rows: smORFs (by="smorf", averaged
-    over their occurrences) or occurrences (by="occ"). For each side and
-    position 1-5: the gene's COG letters (one-hot, in the order of cats,
-    multi-letter genes split), whether it is on the target's strand, its log
-    distance and whether it overlaps the gene before it; plus the log number
-    of occurrences (occurrences=True, by="smorf" only)."""
-    cats = list(cats or d.labels[:d.n_cats])
-    nb = d.nb
-    n_slot, nc = 2 * FOREST_POSITIONS, len(cats)
-    to_cat = np.array([cats.index(c) for c in d.labels[:d.n_cats]])
-    n_rows = d.smorfs.height if by == "smorf" else len(d.occ_smorf)
-    use = nb["rank"] <= FOREST_POSITIONS
-    side = (d.info["side"][nb["ent"]].astype(np.int64) if d.info is not None
-            else np.zeros(len(nb["ent"]), dtype=np.int64))
-    key = nb[by].astype(np.int64) * n_slot + side * FOREST_POSITIONS + nb["rank"].astype(np.int64) - 1
-    feats = [np.bincount(key[use] * nc + to_cat[nb["code"][use]], weights=1 / nb["ncat"][use],
-                         minlength=n_rows * n_slot * nc).reshape(n_rows, n_slot * nc)]
-    if d.info is not None:
-        first = run_starts(nb["ent"])
-        first = first[use[first]]  # one entry per gene
-        gene = nb["ent"][first]
-        for value in (d.info["same"][gene].astype(float), np.log1p(np.maximum(d.info["dist"][gene], 0)),
-                      (d.info["gap"][gene] < 0).astype(float)):
-            feats.append(np.bincount(key[first], weights=value, minlength=n_rows * n_slot).reshape(n_rows, n_slot))
-    x = np.hstack(feats)
-    if by == "smorf":
-        n_occ = np.maximum(np.bincount(d.occ_smorf, minlength=n_rows), 1)
-        x /= n_occ[:, None]
-        if occurrences:
-            x = np.hstack([x, np.log(n_occ)[:, None]])
-    return x.astype(np.float32)
+def ml_features(d):
+    """smORF x features: per side and position 1-5, the gene's COG letters
+    (one-hot, multi-letter genes split), same strand, log distance, overlap
+    with the gene before; averaged over occurrences; plus log occurrences. Cached."""
+    if "features" not in d.cache:
+        nb = d.nb
+        n_slot, nc = 2 * FOREST_POSITIONS, d.n_cats
+        use = nb["rank"] <= FOREST_POSITIONS
+        side = (d.info["side"][nb["ent"]].astype(np.int64) if d.info is not None
+                else np.zeros(len(nb["ent"]), dtype=np.int64))
+        key = nb["smorf"].astype(np.int64) * n_slot + side * FOREST_POSITIONS + nb["rank"].astype(np.int64) - 1
+        feats = [np.bincount(key[use] * nc + nb["code"][use], weights=1 / nb["ncat"][use],
+                             minlength=d.n * n_slot * nc).reshape(d.n, n_slot * nc)]
+        if d.info is not None:
+            first = run_starts(nb["ent"])
+            first = first[use[first]]  # one entry per gene
+            gene = nb["ent"][first]
+            for value in (d.info["same"][gene].astype(float), np.log1p(np.maximum(d.info["dist"][gene], 0)),
+                          (d.info["gap"][gene] < 0).astype(float)):
+                feats.append(np.bincount(key[first], weights=value, minlength=d.n * n_slot).reshape(d.n, n_slot))
+        n_occ = np.maximum(np.bincount(d.occ_smorf, minlength=d.n), 1)
+        x = np.hstack(feats) / n_occ[:, None]
+        d.cache["features"] = np.hstack([x, np.log(n_occ)[:, None]]).astype(np.float32)
+    return d.cache["features"]
 
 
-def feature_names(d, cats=None, occurrences=True):
-    cats = list(cats or d.labels[:d.n_cats])
+def feature_names(d):
     slots = [f"{'up' if s < FOREST_POSITIONS else 'down'}{s % FOREST_POSITIONS + 1}"
              for s in range(2 * FOREST_POSITIONS)]
-    names = [f"{s}_{c}" for s in slots for c in cats]
+    names = [f"{s}_{c}" for s in slots for c in d.labels[:d.n_cats]]
     if d.info is not None:
         names += [f"{s}_{f}" for f in ("same_strand", "log_distance", "overlaps") for s in slots]
-    return names + (["log_occurrences"] if occurrences else [])
+    return names + ["log_occurrences"]
 
 
-def known_matrix(d, exclude=(), cats=None):
-    """smORF x category (cats, default d's): is it a known category, not excluded?"""
-    cats = list(cats or d.labels[:d.n_cats])
-    t = d.targets.filter(~pl.col("cat").is_in(list(exclude)))
-    k = np.zeros((d.smorfs.height, len(cats)), dtype=bool)
-    k[t["smorf"].to_numpy(), [cats.index(c) for c in t["cat"].to_list()]] = True
-    return k
+def known_matrix(d, exclude=()):
+    """smORF x category: known and not excluded? Cached."""
+    key = ("known", tuple(exclude))
+    if key not in d.cache:
+        k = np.zeros((d.n, d.n_cats), dtype=bool)
+        k[known_codes(d, exclude)] = True
+        d.cache[key] = k
+    return d.cache[key]
 
 
 def halves(d):
-    """The TRAIN and TEST halves of the annotated smORFs, exactly as cascade.py"""
+    """TRAIN and TEST halves of the annotated smORFs, exactly as cascade.py"""
     annotated = [int(i) for i in np.flatnonzero(d.smorfs["annotated"].to_numpy())]
     random.Random(FOREST_SEED).shuffle(annotated)
     half = len(annotated) // 2
     return np.array(sorted(annotated[:half]), dtype=np.int64), np.array(sorted(annotated[half:]), dtype=np.int64)
 
 
-GROUP_SIM = 0.9  # annotated smORFs with neighbourhoods at least this similar go in the same half
-
-
 def related_pairs(d, min_sim=GROUP_SIM):
-    """(i, j) pairs of related annotated smORFs: on the same target gene, or
-    one among the 25 smORFs with the most similar neighbourhood of the other
-    (COG IDs within 3 genes, the search of rules AL) with cosine similarity
-    >= min_sim. Cached."""
+    """(i, j) of related annotated smORFs: on the same target gene, or among
+    each other's 25 most similar neighbourhoods (rules AL) with cosine >= min_sim"""
     key = ("related pairs", min_sim)
     if key in d.cache:
         return d.cache[key]
     annotated = d.smorfs["annotated"].to_numpy()
     i, j = [np.zeros(0, dtype=np.int64)], [np.zeros(0, dtype=np.int64)]
-    found = nearest(d, "faiss", 25, 3, 512) or nearest(d, "exact", 25, 3, 512)
-    if found is not None:
+    if (found := nearest(d, "faiss", 25, 3, 512) or nearest(d, "exact", 25, 3, 512)) is not None:
         who, nn, sim = found
         a, b, s = np.repeat(who, nn.shape[1]), nn.ravel(), sim.ravel()
         ok = (b >= 0) & (a != b) & (s >= min_sim - SIM_TOLERANCE)
@@ -949,8 +887,7 @@ def related_pairs(d, min_sim=GROUP_SIM):
         ok = annotated[a] & annotated[b]
         i.append(a[ok])
         j.append(b[ok])
-    targets = target_genes(d)
-    if targets is not None:  # smORFs on the same gene: link each to the next one on that gene
+    if (targets := target_genes(d)) is not None:  # link each smORF to the next on the same gene
         smorf, gene, _ = targets
         order = np.argsort(gene, kind="stable")
         smorf, gene = smorf[order], gene[order]
@@ -962,22 +899,19 @@ def related_pairs(d, min_sim=GROUP_SIM):
 
 
 def related_groups(d, min_sim=GROUP_SIM):
-    """A group number per smORF, clustered like CD-HIT: the annotated smORFs
-    are taken in a random order, and each one not yet in a group starts a new
-    group with the smORFs directly related to it (related_pairs) that are not
-    yet in a group. No chains, so no single giant group. Cached."""
+    """Group per smORF, CD-HIT style: annotated smORFs in random order; each
+    one not yet grouped starts a group with its ungrouped related smORFs (no chains)"""
     key = ("related groups", min_sim)
     if key in d.cache:
         return d.cache[key]
-    n = d.smorfs.height
     i, j = related_pairs(d, min_sim)
-    a, b = np.r_[i, j], np.r_[j, i]  # both directions
+    a, b = np.r_[i, j], np.r_[j, i]
     order = np.argsort(a, kind="stable")
     a, b = a[order], b[order]
-    start = np.searchsorted(a, np.arange(n + 1))
+    start = np.searchsorted(a, np.arange(d.n + 1))
     annotated = [int(x) for x in np.flatnonzero(d.smorfs["annotated"].to_numpy())]
     random.Random(FOREST_SEED).shuffle(annotated)
-    group = np.full(n, -1, dtype=np.int64)
+    group = np.full(d.n, -1, dtype=np.int64)
     g = 0
     for x in annotated:
         if group[x] < 0:
@@ -992,10 +926,8 @@ def related_groups(d, min_sim=GROUP_SIM):
 
 
 def grouped_halves(d, min_sim=GROUP_SIM):
-    """TRAIN and TEST halves like halves(), but related smORFs (related_groups)
-    always go in the same half, so a model is never scored on a smORF whose
-    near-copy it was trained on. Whole groups, in a random order, fill the
-    first half until it holds half of the annotated smORFs."""
+    """As halves(), but related smORFs always go in the same half: whole
+    groups, in random order, fill the first half up to half the annotated smORFs"""
     key = ("grouped halves", min_sim)
     if key not in d.cache:
         annotated = np.flatnonzero(d.smorfs["annotated"].to_numpy())
@@ -1008,118 +940,22 @@ def grouped_halves(d, min_sim=GROUP_SIM):
         first[np.array(order, dtype=np.int64)[start < len(annotated) // 2]] = True
         in_first = first[np.searchsorted(ids, g)]
         d.cache[key] = annotated[in_first], annotated[~in_first]
+
         i, j = related_pairs(d, min_sim)
-        half = np.zeros(d.smorfs.height, dtype=np.int8)
-        half[annotated[in_first]] = 1
-        across = (half[i] != half[j]).sum()
+        def across(part):
+            half = np.zeros(d.n, dtype=np.int8)
+            half[part] = 1
+            return int((half[i] != half[j]).sum())
         print(f"    (grouped halves: {len(annotated):,} annotated smORFs in {len(ids):,} groups, largest "
               f"{size.max() if len(size) else 0:,}, {(size > 1).sum():,} groups with more than one; halves of "
               f"{in_first.sum():,} and {(~in_first).sum():,}; related pairs {len(i):,}, split across the "
-              f"halves {across:,} ({pct(across, len(i)) or 0}%), with random halves "
-              f"{pct(random_across(d, i, j), len(i)) or 0}%)", flush=True)
+              f"halves {across(annotated[in_first]):,} ({pct(across(annotated[in_first]), len(i)) or 0}%), "
+              f"with random halves {pct(across(halves(d)[0]), len(i)) or 0}%)", flush=True)
     return d.cache[key]
 
 
-def random_across(d, i, j):
-    """How many of the pairs (i, j) the random halves split"""
-    a, _ = halves(d)
-    half = np.zeros(d.smorfs.height, dtype=np.int8)
-    half[a] = 1
-    return int((half[i] != half[j]).sum())
-
-
-def split_halves(d, split):
-    """split: "random" (halves, as cascade.py) or "grouped" (grouped_halves)"""
-    if split == "random":
-        return halves(d)
-    if split == "grouped":
-        return grouped_halves(d)
-    raise ValueError(f"unknown split {split}")
-
-
-def fit_forest(x, k, rows):
-    """Random forest trained on rows with features and a known category (one
-    training row per known category, weight 1 / number of categories)"""
-    from sklearn.ensemble import RandomForestClassifier
-    rows = rows[k[rows].any(axis=1) & x[rows].any(axis=1)]
-    r, c = np.nonzero(k[rows])
-    model = RandomForestClassifier(n_estimators=300, min_samples_leaf=3, n_jobs=cpus(), random_state=FOREST_SEED)
-    model.fit(x[rows[r]], c, sample_weight=1.0 / k[rows].sum(axis=1)[r])
-    return model
-
-
-def forest_probabilities(model, x, n_cats, rows=None):
-    """rows (default all) x categories; 0 for rows without features"""
-    rows = np.arange(len(x)) if rows is None else rows
-    p = np.zeros((len(x), n_cats))
-    go = rows[x[rows].any(axis=1)]
-    for b in range(0, len(go), 200_000):
-        g = go[b:b + 200_000]
-        p[np.ix_(g, model.classes_)] = model.predict_proba(x[g])
-    return p
-
-
-FOREST_DROP = {"strand": ("_same_strand",), "distance": ("_log_distance", "_overlaps")}
-
-
-def random_forest(d, exclude=(), cutoff=None, drop=(), split="random"):
-    """Random forest on ml_features. Each annotated smORF is predicted by a
-    model trained on the OTHER half (the TRAIN/TEST halves of cascade.py), so
-    its accuracy is not inflated; smORFs without a known category by a model
-    trained on all annotated smORFs. Winner's % = the forest's confidence.
-    cutoff: predict only if the confidence is >= cutoff %.
-    drop: leave out "strand" and/or "distance" (log distance and overlap) features.
-    split: "random" halves, or "grouped" (related smORFs in the same half)."""
-    key = ("forest", tuple(exclude), tuple(drop)) + ((split,) if split != "random" else ())
-    if key not in d.cache:
-        try:
-            import sklearn  # noqa: F401
-        except ImportError:
-            print("  (scikit-learn not installed: the random forest rules predict nothing)", flush=True)
-            return nothing(d)
-        x = ml_features(d)
-        if drop:
-            gone = sum((FOREST_DROP[f] for f in drop), ())
-            x = x[:, [i for i, n in enumerate(feature_names(d)) if not n.endswith(gone)]]
-        k = known_matrix(d, exclude)
-        a, b = split_halves(d, split)
-        rest = np.flatnonzero(~d.smorfs["annotated"].to_numpy())
-        prob = np.zeros((d.smorfs.height, d.n_cats))
-        for train, predict in ((a, b), (b, a), (np.r_[a, b], rest)):
-            if len(train) and len(predict):
-                prob += forest_probabilities(fit_forest(x, k, train), x, d.n_cats, predict)
-        d.cache[key] = prob
-    return from_probabilities(d, d.cache[key], cutoff)
-
-
-def from_probabilities(d, prob, cutoff=None):
-    """Prediction = the most probable category; winner's % = its probability.
-    cutoff: predict only if the probability is >= cutoff %."""
-    conf = prob.max(axis=1)
-    pred = np.where(conf > 0, prob.argmax(axis=1), d.code("NO_EVIDENCE"))
-    if cutoff:
-        pred = low_confidence(d, pred, conf * 100 < cutoff - PCT_TOLERANCE)
-    return pred, conf * 100
-
-
-# ----------------------------------------------------- other ML models ----
-# Same features (ml_features), same TRAIN/TEST halves and same training rows
-# as the random forest, so their accuracy can be compared with it directly.
-
-ML_MODELS = {  # name used in the rules: text in the rule
-    "boosting":     "gradient boosting (HistGradientBoosting)",
-    "extra_trees":  "extra trees (more randomised random forest)",
-    "logistic":     "logistic regression",
-    "naive_bayes":  "naive Bayes (Gaussian)",
-    "knn":          "k-nearest neighbours (25 most similar smORFs, closer ones count more)",
-    "mlp":          "neural network (MLP, one hidden layer of 128)",
-}
-ENSEMBLE = ("forest", "boosting", "extra_trees", "logistic", "mlp")  # averaged by the ensemble rules
-
-
 def make_model(name):
-    """A new, untrained scikit-learn model. Models that depend on the scale of
-    the features (logistic, kNN, MLP) standardise them first."""
+    """Untrained model; logistic, kNN and MLP standardise the features first"""
     from sklearn.ensemble import ExtraTreesClassifier, HistGradientBoostingClassifier, RandomForestClassifier
     from sklearn.linear_model import LogisticRegression
     from sklearn.naive_bayes import GaussianNB
@@ -1127,30 +963,25 @@ def make_model(name):
     from sklearn.neural_network import MLPClassifier
     from sklearn.pipeline import make_pipeline
     from sklearn.preprocessing import StandardScaler
-    n = cpus()
-    if name == "forest":
-        return RandomForestClassifier(n_estimators=300, min_samples_leaf=3, n_jobs=n, random_state=FOREST_SEED)
-    if name == "boosting":
-        return HistGradientBoostingClassifier(max_iter=300, learning_rate=0.1, early_stopping=True,
-                                              random_state=FOREST_SEED)
-    if name == "extra_trees":
-        return ExtraTreesClassifier(n_estimators=300, min_samples_leaf=3, n_jobs=n, random_state=FOREST_SEED)
-    if name == "logistic":
-        return make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, C=1.0))
-    if name == "naive_bayes":
-        return GaussianNB()
-    if name == "knn":
-        return make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25, weights="distance", n_jobs=n))
-    if name == "mlp":
-        return make_pipeline(StandardScaler(), MLPClassifier(hidden_layer_sizes=(128,), early_stopping=True,
-                                                             max_iter=200, random_state=FOREST_SEED))
-    raise ValueError(f"unknown model {name}")
+    n, seed = cpus(), FOREST_SEED
+    return {
+        "forest": lambda: RandomForestClassifier(n_estimators=300, min_samples_leaf=3, n_jobs=n, random_state=seed),
+        "boosting": lambda: HistGradientBoostingClassifier(max_iter=300, learning_rate=0.1, early_stopping=True,
+                                                           random_state=seed),
+        "extra_trees": lambda: ExtraTreesClassifier(n_estimators=300, min_samples_leaf=3, n_jobs=n,
+                                                    random_state=seed),
+        "logistic": lambda: make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, C=1.0)),
+        "naive_bayes": GaussianNB,
+        "knn": lambda: make_pipeline(StandardScaler(),
+                                     KNeighborsClassifier(n_neighbors=25, weights="distance", n_jobs=n)),
+        "mlp": lambda: make_pipeline(StandardScaler(), MLPClassifier(hidden_layer_sizes=(128,), early_stopping=True,
+                                                                     max_iter=200, random_state=seed)),
+    }[name]()
 
 
 def fit_model(name, x, k, rows):
-    """As fit_forest, for any model in make_model: one training row per known
-    category, weight 1 / number of categories (kNN cannot take weights, so
-    each of its training rows counts once)."""
+    """One training row per known category, weight 1 / number of categories
+    (kNN takes no weights)"""
     rows = rows[k[rows].any(axis=1) & x[rows].any(axis=1)]
     r, c = np.nonzero(k[rows])
     w = 1.0 / k[rows].sum(axis=1)[r]
@@ -1164,537 +995,406 @@ def fit_model(name, x, k, rows):
     return model
 
 
-def ml_probabilities(d, name, exclude=(), split="random"):
-    """smORF x category probabilities from model `name`, predicted as in
-    random_forest: each annotated smORF by a model trained on the other half,
-    the rest by a model trained on all annotated smORFs. Cached."""
-    tag = (split,) if split != "random" else ()
-    if name == "forest":
-        random_forest(d, exclude=exclude, split=split)
-        return d.cache[("forest", tuple(exclude), ()) + tag]
-    key = ("ml", name, tuple(exclude)) + tag
+def predict_proba(model, x, n_cats, rows):
+    """rows x categories; 0 for rows without features"""
+    p = np.zeros((len(x), n_cats))
+    go = rows[x[rows].any(axis=1)]
+    for b in range(0, len(go), 200_000):
+        g = go[b:b + 200_000]
+        p[np.ix_(g, model.classes_)] = model.predict_proba(x[g])
+    return p
+
+
+def ml_probabilities(d, name, exclude=(), split="random", drop=()):
+    """smORF x category probabilities: each annotated smORF by a model trained
+    on the other half (split "random" or "grouped"), the rest by a model
+    trained on all annotated smORFs. drop: "strand" and/or "distance" features. Cached."""
+    key = ("ml", name, tuple(exclude), split, tuple(drop))
     if key not in d.cache:
         t = time.time()
         x = ml_features(d)
+        if drop:
+            gone = sum((FOREST_DROP[f] for f in drop), ())
+            x = x[:, [i for i, f in enumerate(feature_names(d)) if not f.endswith(gone)]]
         k = known_matrix(d, exclude)
-        a, b = split_halves(d, split)
+        a, b = grouped_halves(d) if split == "grouped" else halves(d)
         rest = np.flatnonzero(~d.smorfs["annotated"].to_numpy())
-        prob = np.zeros((d.smorfs.height, d.n_cats))
-        for train, pred in ((a, b), (b, a), (np.r_[a, b], rest)):
-            if len(train) and len(pred):
-                prob += forest_probabilities(fit_model(name, x, k, train), x, d.n_cats, pred)
+        prob = np.zeros((d.n, d.n_cats))
+        for train, test in ((a, b), (b, a), (np.r_[a, b], rest)):
+            if len(train) and len(test):
+                prob += predict_proba(fit_model(name, x, k, train), x, d.n_cats, test)
         d.cache[key] = prob
         print(f"    ({name} trained 3 times in {time.time() - t:.1f}s)", flush=True)
     return d.cache[key]
 
 
-def ml_model(d, model="boosting", exclude=(), cutoff=None, split="random"):
-    """One of ML_MODELS, used like the random forest. Winner's % = the
-    model's probability for the predicted category."""
+def from_probabilities(d, prob, cutoff=None):
+    """Most probable category; winner's % = its probability"""
+    conf = prob.max(axis=1)
+    pred = np.where(conf > 0, prob.argmax(axis=1), d.code("NO_EVIDENCE"))
+    if cutoff:
+        pred = low_confidence(d, pred, conf * 100 < cutoff - PCT_TOLERANCE)
+    return pred, conf * 100
+
+
+def have_sklearn():
     try:
         import sklearn  # noqa: F401
+        return True
     except ImportError:
         print("  (scikit-learn not installed: the ML rules predict nothing)", flush=True)
-        return nothing(d)
-    return from_probabilities(d, ml_probabilities(d, model, exclude, split), cutoff)
+        return False
+
+
+def ml_model(d, model="boosting", exclude=(), cutoff=None, split="random", drop=()):
+    """One model (forest or ML_MODELS); confidence = its probability"""
+    if not have_sklearn():
+        return always(d)
+    return from_probabilities(d, ml_probabilities(d, model, exclude, split, drop), cutoff)
+
+
+def random_forest(d, exclude=(), cutoff=None, drop=(), split="random"):
+    return ml_model(d, "forest", exclude, cutoff, split, drop)
 
 
 def ml_ensemble(d, models=ENSEMBLE, exclude=(), cutoff=None, split="random"):
-    """Average of the probabilities of several models"""
-    try:
-        import sklearn  # noqa: F401
-    except ImportError:
-        print("  (scikit-learn not installed: the ML rules predict nothing)", flush=True)
-        return nothing(d)
-    prob = np.mean([ml_probabilities(d, m, exclude, split) for m in models], axis=0)
-    return from_probabilities(d, prob, cutoff)
+    """Average of the models' probabilities"""
+    if not have_sklearn():
+        return always(d)
+    return from_probabilities(d, np.mean([ml_probabilities(d, m, exclude, split) for m in models], axis=0), cutoff)
 
 
-# ------------------------------------------------------------- the rules ----
+# ------------------------------------------------------------ the rules ----
+
+CATS = (("all categories", ()), ("excluding S and R", SR))
+CURVE = {"flat": "flat", "linear": "linear", "steeper": "steeper", "very_steep": "very steep"}
+HALVES = "(each half predicted by a model trained on the other half)"
+GROUPED = ("each half predicted by a model trained on the other half (related smORFs kept in the same half: "
+           "same target gene or neighbourhood similarity >= 0.9)")
+ENSEMBLE_TEXT = "average of random forest, gradient boosting, extra trees, logistic regression and neural network"
+CUTS = (None, 50, 60, 70, 80, 90)
+
+
+def need(cut):
+    return f", predict only if confidence >= {cut}%" if cut else ""
+
 
 def build_combinations(d):
-    """All rules: id, group, rule (text), fn, settings, exclude. IDs follow
-    the order, so add new rules at the end."""
+    """All rules: id, group, rule, fn, settings, exclude. IDs follow the order."""
     combos = []
 
     def add(group, rule, fn, **settings):
         combos.append(dict(id=f"C{len(combos) + 1:03d}", group=group, rule=rule, fn=fn,
                            settings=settings, exclude=settings.get("exclude", ())))
 
-    cats_opts = (("all categories", ()), ("excluding S and R", SR))
-    curve_name = {"flat": "flat", "linear": "linear", "steeper": "steeper", "very_steep": "very steep"}
+    def both(group, rule, fn, tail="", **settings):
+        """The rule for all categories, then excluding S and R"""
+        for cname, ex in CATS:
+            add(group, f"{rule}, {cname}{tail}", fn, exclude=ex, **settings)
 
     # A. weighted vote (34)
     for n in (1, 2, 3, 4, 5):
         for curve in ("linear", "steeper", "flat", "very_steep"):
-            if n == 1 and curve != "linear":
-                continue  # same answer for every weighting
-            for cname, ex in cats_opts:
-                extra = " (ORIGINAL METHOD)" if curve == "linear" and n == 5 else ""
-                add("A. Weighted vote", f"{curve_name[curve]} weights, {n} neighbour(s), {cname}{extra}",
-                    weighted_vote, curve=curve, n=n, exclude=ex)
-
+            if n > 1 or curve == "linear":  # 1 neighbour: same answer for every weighting
+                both("A. Weighted vote", f"{CURVE[curve]} weights, {n} neighbour(s)", weighted_vote,
+                     tail=" (ORIGINAL METHOD)" if curve == "linear" and n == 5 else "", curve=curve, n=n)
     # B. majority rule (10)
     for n, k in ((3, 2), (5, 3), (5, 4), (7, 5), (9, 6)):
-        for cname, ex in cats_opts:
-            add("B. Majority rule", f"at least {k} of the {n} nearest agree, {cname}",
-                majority, n=n, k=k, exclude=ex)
-
+        both("B. Majority rule", f"at least {k} of the {n} nearest agree", majority, n=n, k=k)
     # C. confidence cutoff (20)
     for curve in ("linear", "steeper"):
         for cut in (30, 40, 50, 60, 70):
-            for cname, ex in cats_opts:
-                add("C. Confidence cutoff", f"{curve} weights, 5 neighbours, predict only if winner has "
-                    f">= {cut}% of the vote, {cname}", weighted_vote, curve=curve, n=5, exclude=ex, cutoff=cut)
-
+            both("C. Confidence cutoff", f"{curve} weights, 5 neighbours, predict only if winner has >= {cut}% "
+                 f"of the vote", weighted_vote, curve=curve, n=5, cutoff=cut)
     # D. down-weight common categories (6)
     near = d.nb["rank"] <= 5
     background = np.bincount(d.nb["code"][near], weights=1 / d.nb["ncat"][near], minlength=d.n_cats)
     seen = np.bincount(d.nb["code"][near], minlength=d.n_cats) > 0
     background = background / (background[seen].mean() if seen.any() else 1)
     for curve, n in (("linear", 5), ("steeper", 5), ("steeper", 3)):
-        for cname, ex in cats_opts:
-            add("D. Down-weight common categories", f"{curve} weights, {n} neighbours, votes divided by "
-                f"how common the category is overall, {cname}", weighted_vote,
-                curve=curve, n=n, exclude=ex, background=background)
-
+        both("D. Down-weight common categories", f"{curve} weights, {n} neighbours, votes divided by how common "
+             f"the category is overall", weighted_vote, curve=curve, n=n, background=background)
     # E. consensus across genomes (8)
     for curve in ("linear", "steeper"):
         for n in (3, 5):
-            for cname, ex in cats_opts:
-                add("E. Consensus across genomes", f"each genome predicts with {curve} weights and {n} "
-                    f"neighbours, then genomes vote, {cname}", consensus, curve=curve, n=n, exclude=ex)
-
+            both("E. Consensus across genomes", f"each genome predicts with {curve} weights and {n} neighbours, "
+                 f"then genomes vote", consensus, curve=curve, n=n)
     # F. minimum evidence (6)
     for m in (2, 3, 5):
-        for cname, ex in cats_opts:
-            add("F. Minimum evidence", f"steeper weights, 5 neighbours, predict only if >= {m} genomes "
-                f"contribute votes, {cname}", weighted_vote, curve="steeper", n=5, exclude=ex, min_occ=m)
-
+        both("F. Minimum evidence", f"steeper weights, 5 neighbours, predict only if >= {m} genomes contribute "
+             f"votes", weighted_vote, curve="steeper", n=5, min_occ=m)
     # G. more neighbours (4)
     for n in (7, 10):
-        for cname, ex in cats_opts:
-            add("G. More neighbours", f"steeper weights, {n} neighbours, {cname}",
-                weighted_vote, curve="steeper", n=n, exclude=ex)
-
+        both("G. More neighbours", f"steeper weights, {n} neighbours", weighted_vote, curve="steeper", n=n)
     # H. multi-letter categories (4)
     for multi, text in (("full", "count every letter fully"), ("ignore", "ignore multi-letter genes")):
-        for cname, ex in cats_opts:
-            add("H. Multi-letter categories", f"steeper weights, 5 neighbours, {text}, {cname}",
-                weighted_vote, curve="steeper", n=5, exclude=ex, multi=multi)
-
+        both("H. Multi-letter categories", f"steeper weights, 5 neighbours, {text}", weighted_vote,
+             curve="steeper", n=5, multi=multi)
     # I. other exclusions (4)
     for curve in ("linear", "steeper"):
-        for letter in ("S", "R"):
+        for letter in SR:
             add("I. Other exclusions", f"{curve} weights, 5 neighbours, excluding {letter} only",
                 weighted_vote, curve=curve, n=5, exclude=(letter,))
-
     # J. controls (4)
     freq = Counter(d.targets["cat"].to_list())
     freq_no_sr = Counter({c: v for c, v in freq.items() if c not in SR})
-    if freq:
-        top = freq.most_common(1)[0][0]
-        add("J. Control", f"always predict '{top}' (most common category), all categories",
-            control_always, category=top)
-    if freq_no_sr:
-        top = freq_no_sr.most_common(1)[0][0]
-        add("J. Control", f"always predict '{top}' (most common category), excluding S and R",
-            control_always, category=top, exclude=SR)
+    for f, (cname, ex) in zip((freq, freq_no_sr), CATS):
+        if f:
+            top = f.most_common(1)[0][0]
+            add("J. Control", f"always predict '{top}' (most common category), {cname}", control_always,
+                category=top, **({"exclude": ex} if ex else {}))
     if freq:
         cats, counts = zip(*freq.most_common())
         add("J. Control", "random category, weighted by how common each is, all categories",
             control_random, categories=cats, freqs=counts, rng=random.Random(0))
     add("J. Control", "original method run on the neighbours of a different random smORF",
         control_shuffled, rng=random.Random(1))
-
     # K. conserved neighbourhood (24)
     for n in (1, 2, 3, 5):
         for frac in (None, 0.5, 0.7):
-            for cname, ex in cats_opts:
-                need = f", only if in >= {frac:.0%} of its genomes" if frac else ""
-                add("K. Conserved neighbourhood", f"category found within {n} neighbour(s) in the most "
-                    f"genomes{need}, {cname}", conserved, n=n, exclude=ex, min_frac=frac)
-
+            both("K. Conserved neighbourhood", f"category found within {n} neighbour(s) in the most genomes"
+                 + (f", only if in >= {frac:.0%} of its genomes" if frac else ""), conserved, n=n, min_frac=frac)
     # L. sandwiched (6)
     for genomes, frac, text in ((1, None, "in at least 1 genome"), (2, None, "in at least 2 genomes"),
                                 (1, 0.5, "in at least 50% of its genomes")):
-        for cname, ex in cats_opts:
-            add("L. Sandwiched", f"closest gene on both sides has the same category, {text}, {cname}",
-                sandwiched, exclude=ex, min_genomes=genomes, min_frac=frac)
-
+        both("L. Sandwiched", f"closest gene on both sides has the same category, {text}", sandwiched,
+             min_genomes=genomes, min_frac=frac)
     # M. two methods agree (4)
-    for cname, ex in cats_opts:
-        add("M. Two methods agree", f"very steep weights, 3 neighbours, and conserved neighbourhood "
-            f"(3 neighbours) predict the same category, {cname}", agree, exclude=ex,
-            first=(weighted_vote, dict(curve="very_steep", n=3, exclude=ex)),
-            second=(conserved, dict(n=3, exclude=ex)))
-    for cname, ex in cats_opts:
-        add("M. Two methods agree", f"original method and 'at least 3 of the 5 nearest agree' predict "
-            f"the same category, {cname}", agree, exclude=ex,
-            first=(weighted_vote, dict(curve="linear", n=5, exclude=ex)),
-            second=(majority, dict(n=5, k=3, exclude=ex)))
-
+    for text, first, second in (
+            ("very steep weights, 3 neighbours, and conserved neighbourhood (3 neighbours)",
+             (weighted_vote, dict(curve="very_steep", n=3)), (conserved, dict(n=3))),
+            ("original method and 'at least 3 of the 5 nearest agree'",
+             (weighted_vote, dict(curve="linear", n=5)), (majority, dict(n=5, k=3)))):
+        for cname, ex in CATS:
+            add("M. Two methods agree", f"{text} predict the same category, {cname}", agree, exclude=ex,
+                first=(first[0], {**first[1], "exclude": ex}), second=(second[0], {**second[1], "exclude": ex}))
     # N. enrichment (4)
     for n in (3, 5):
-        for cname, ex in cats_opts:
-            add("N. Enrichment over background", f"category most enriched within {n} neighbours compared "
-                f"with the whole data, found in >= 2 genomes, {cname}", enriched, n=n, exclude=ex)
-
+        both("N. Enrichment over background", f"category most enriched within {n} neighbours compared with the "
+             f"whole data, found in >= 2 genomes", enriched, n=n)
     # O. conservation-weighted vote (4)
     for curve, n in (("very_steep", 3), ("linear", 5)):
-        for cname, ex in cats_opts:
-            add("O. Conservation-weighted vote", f"{curve_name[curve]} weights, {n} neighbours, each "
-                f"category's vote times the share of genomes that have it, {cname}",
-                conserved_vote, curve=curve, n=n, exclude=ex)
-
+        both("O. Conservation-weighted vote", f"{CURVE[curve]} weights, {n} neighbours, each category's vote "
+             f"times the share of genomes that have it", conserved_vote, curve=curve, n=n)
     # P. very steep cutoffs (8)
     for cut in (50, 60, 70, 80):
-        for cname, ex in cats_opts:
-            add("P. Confidence cutoff (very steep)", f"very steep weights, 3 neighbours, predict only if "
-                f"winner has >= {cut}% of the vote, {cname}", weighted_vote,
-                curve="very_steep", n=3, exclude=ex, cutoff=cut)
-
+        both("P. Confidence cutoff (very steep)", f"very steep weights, 3 neighbours, predict only if winner has "
+             f">= {cut}% of the vote", weighted_vote, curve="very_steep", n=3, cutoff=cut)
     # Q. operon vote (12)
     for gap in (50, 100, 200):
         for curve in ("flat", "linear"):
-            for cname, ex in cats_opts:
-                add("Q. Operon vote", f"{curve} weights, only neighbours in the target gene's operon (same "
-                    f"strand, <= {gap} bp between genes), {cname}", operon_vote,
-                    max_gap=gap, curve=curve, n=5, exclude=ex)
-
+            both("Q. Operon vote", f"{curve} weights, only neighbours in the target gene's operon (same strand, "
+                 f"<= {gap} bp between genes)", operon_vote, max_gap=gap, curve=curve, n=5)
     # R. sandwiched with strand/distance (12)
     for strand, dist, text in ((True, None, "both on the target's strand"),
                                (False, 100, "both within 100 bp of the target gene"),
                                (True, 100, "both on the target's strand and within 100 bp")):
-        for genomes, frac, need in ((2, None, "in at least 2 genomes"), (1, 0.5, "in at least 50% of its genomes")):
-            for cname, ex in cats_opts:
-                add("R. Sandwiched (strand/distance)", f"closest gene on both sides has the same category, "
-                    f"{text}, {need}, {cname}", sandwiched, same_strand=strand, max_dist=dist,
-                    exclude=ex, min_genomes=genomes, min_frac=frac)
-
+        for genomes, frac, need_g in ((2, None, "in at least 2 genomes"), (1, 0.5, "in at least 50% of its genomes")):
+            both("R. Sandwiched (strand/distance)", f"closest gene on both sides has the same category, {text}, "
+                 f"{need_g}", sandwiched, same_strand=strand, max_dist=dist, min_genomes=genomes, min_frac=frac)
     # S. distance-weighted vote (6)
     for half in (250, 500, 1000):
-        for cname, ex in cats_opts:
-            add("S. Distance-weighted vote", f"5 neighbours, vote halves every {half} bp from the target "
-                f"gene, {cname}", distance_vote, half=half, n=5, exclude=ex)
-
+        both("S. Distance-weighted vote", f"5 neighbours, vote halves every {half} bp from the target gene",
+             distance_vote, half=half, n=5)
     # T. operon vote + cutoff (4)
     for cut in (50, 70):
-        for cname, ex in cats_opts:
-            add("T. Operon vote + cutoff", f"linear weights, operon neighbours (<= 100 bp), predict only if "
-                f"winner has >= {cut}% of the vote, {cname}", operon_vote,
-                max_gap=100, curve="linear", n=5, exclude=ex, cutoff=cut)
-
+        both("T. Operon vote + cutoff", f"linear weights, operon neighbours (<= 100 bp), predict only if winner "
+             f"has >= {cut}% of the vote", operon_vote, max_gap=100, curve="linear", n=5, cutoff=cut)
     # U, V. similar neighbourhoods: Annoy (4), Voyager (4)
-    for group, engine in (("U. Annoy nearest neighbours", "annoy"), ("V. Voyager nearest neighbours", "voyager")):
-        name = "Annoy" if engine == "annoy" else "Voyager"
+    for group, engine, name in (("U. Annoy nearest neighbours", "annoy", "Annoy"),
+                                ("V. Voyager nearest neighbours", "voyager", "Voyager")):
         for k in (10, 25):
-            for cname, ex in cats_opts:
-                add(group, f"the {k} smORFs with the most similar neighbourhoods "
-                    f"(COG IDs within 3 genes, {name}) vote, {cname}", similar_vote, engine=engine, k=k,
-                    exclude=ex)
-
+            both(group, f"the {k} smORFs with the most similar neighbourhoods (COG IDs within 3 genes, {name}) "
+                 f"vote", similar_vote, engine=engine, k=k)
     # W. overlapping / tightly coupled genes (6)
     for gap, text in ((-1, "overlapping"), (0, "overlapping or touching"), (20, "<= 20 bp apart")):
-        for cname, ex in cats_opts:
-            add("W. Coupled genes", f"linear weights, only neighbours in a run of same-strand genes "
-                f"{text} up to the target gene, {cname}", operon_vote, max_gap=gap, curve="linear",
-                n=5, exclude=ex)
-
+        both("W. Coupled genes", f"linear weights, only neighbours in a run of same-strand genes {text} up to "
+             f"the target gene", operon_vote, max_gap=gap, curve="linear", n=5)
     # X. one side only (4)
     for side in ("up", "down"):
-        for cname, ex in cats_opts:
-            add("X. One side only", f"linear weights, 5 neighbours, only {side}stream genes vote, {cname}",
-                side_vote, where=side, curve="linear", n=5, exclude=ex)
-
+        both("X. One side only", f"linear weights, 5 neighbours, only {side}stream genes vote", side_vote,
+             where=side, curve="linear", n=5)
     # Y. same strand, any distance (2)
-    for cname, ex in cats_opts:
-        add("Y. Same strand", f"linear weights, 5 neighbours, only genes on the target's strand vote "
-            f"(any distance), {cname}", side_vote, where="same_strand", curve="linear", n=5, exclude=ex)
-
+    both("Y. Same strand", "linear weights, 5 neighbours, only genes on the target's strand vote (any distance)",
+         side_vote, where="same_strand", curve="linear", n=5)
     # Z. operon + distance weighting (4)
     for half in (250, 500):
-        for cname, ex in cats_opts:
-            add("Z. Operon + distance-weighted vote", f"5 neighbours, operon neighbours (<= 100 bp), "
-                f"vote halves every {half} bp from the target gene, {cname}", distance_vote,
-                half=half, n=5, exclude=ex, max_gap=100)
-
+        both("Z. Operon + distance-weighted vote", f"5 neighbours, operon neighbours (<= 100 bp), vote halves "
+             f"every {half} bp from the target gene", distance_vote, half=half, n=5, max_gap=100)
     # AA. margin cutoff (12)
     for curve in ("linear", "steeper"):
         for m in (10, 20, 30):
-            for cname, ex in cats_opts:
-                add("AA. Margin cutoff", f"{curve} weights, 5 neighbours, predict only if winner has "
-                    f">= {m}% more of the vote than the runner-up, {cname}", weighted_vote,
-                    curve=curve, n=5, exclude=ex, margin_cutoff=m)
-
+            both("AA. Margin cutoff", f"{curve} weights, 5 neighbours, predict only if winner has >= {m}% more "
+                 f"of the vote than the runner-up", weighted_vote, curve=curve, n=5, margin_cutoff=m)
     # AB. tie-breaking (8)
     for curve in ("linear", "steeper"):
         for tb, text in (("closest", "the closest gene's category"),
                          ("common", "the category most common among neighbours")):
-            for cname, ex in cats_opts:
-                add("AB. Tie-breaking", f"{curve} weights, 5 neighbours, ties go to {text}, {cname}",
-                    weighted_vote, curve=curve, n=5, exclude=ex, tiebreak=tb)
-
+            both("AB. Tie-breaking", f"{curve} weights, 5 neighbours, ties go to {text}", weighted_vote,
+                 curve=curve, n=5, tiebreak=tb)
     # AC. exact nearest neighbours on the Annoy/Voyager vectors (4)
     for k in (10, 25):
-        for cname, ex in cats_opts:
-            add("AC. Exact nearest neighbours", f"the {k} smORFs with the most similar neighbourhoods "
-                f"(COG IDs within 3 genes, exact search) vote, {cname}", similar_vote, engine="exact",
-                k=k, exclude=ex)
-
-    # AD. exact nearest neighbours on COG letters, closer genes weighted more (4)
+        both("AC. Exact nearest neighbours", f"the {k} smORFs with the most similar neighbourhoods (COG IDs "
+             f"within 3 genes, exact search) vote", similar_vote, engine="exact", k=k)
+    # AD. exact nearest neighbours on COG letters (4)
     for k in (10, 25):
-        for cname, ex in cats_opts:
-            add("AD. Similar letter profiles", f"the {k} smORFs with the most similar COG letters "
-                f"(5 genes per side, linear weights, up/downstream kept apart, exact search) vote, "
-                f"{cname}", similar_vote, engine="exact", k=k, exclude=ex, vectors="letters")
-
-    # AE. random forest, with and without a confidence cutoff (8)
+        both("AD. Similar letter profiles", f"the {k} smORFs with the most similar COG letters (5 genes per side, "
+             f"linear weights, up/downstream kept apart, exact search) vote", similar_vote, engine="exact", k=k,
+             vectors="letters")
+    # AE. random forest (8)
     for cut in (None, 40, 50, 60):
-        for cname, ex in cats_opts:
-            need = f", predict only if confidence >= {cut}%" if cut else ""
-            add("AE. Random forest", f"random forest on COG letters, strand and distance of 5 genes per side "
-                f"(each half predicted by a model trained on the other half){need}, {cname}",
-                random_forest, exclude=ex, cutoff=cut)
-
+        both("AE. Random forest", f"random forest on COG letters, strand and distance of 5 genes per side "
+             f"{HALVES}{need(cut)}", random_forest, cutoff=cut)
     # AF. random forest and the strict sandwiched rule (C171/C172) agree (2)
-    for cname, ex in cats_opts:
-        add("AF. Random forest + sandwiched agree", f"random forest and 'closest gene on both sides has the "
-            f"same category, both on the target's strand and within 100 bp, in at least 2 genomes' predict the "
-            f"same category, {cname}", agree, exclude=ex,
-            first=(random_forest, dict(exclude=ex)),
+    for cname, ex in CATS:
+        add("AF. Random forest + sandwiched agree", f"random forest and 'closest gene on both sides has the same "
+            f"category, both on the target's strand and within 100 bp, in at least 2 genomes' predict the same "
+            f"category, {cname}", agree, exclude=ex, first=(random_forest, dict(exclude=ex)),
             second=(sandwiched, dict(exclude=ex, min_genomes=2, same_strand=True, max_dist=100)))
-
-    # AG. random forest, stricter confidence cutoffs (6)
+    # AG. random forest, stricter cutoffs (6)
     for cut in (70, 80, 90):
-        for cname, ex in cats_opts:
-            add("AG. Random forest (strict)", f"random forest on COG letters, strand and distance of 5 genes per "
-                f"side (each half predicted by a model trained on the other half), predict only if confidence "
-                f">= {cut}%, {cname}", random_forest, exclude=ex, cutoff=cut)
-
-    # AH. sandwiched by the same COG ID, not only the same letter (2)
-    for cname, ex in cats_opts:
-        add("AH. Sandwiched (same COG ID)", f"closest gene on both sides in the same COG (same COG ID), both "
-            f"on the target's strand and within 100 bp, in at least 2 genomes, {cname}", sandwiched,
-            exclude=ex, min_genomes=2, same_strand=True, max_dist=100, same_cog_id=True)
-
+        both("AG. Random forest (strict)", f"random forest on COG letters, strand and distance of 5 genes per "
+             f"side {HALVES}{need(cut)}", random_forest, cutoff=cut)
+    # AH. sandwiched by the same COG ID (2)
+    both("AH. Sandwiched (same COG ID)", "closest gene on both sides in the same COG (same COG ID), both on the "
+         "target's strand and within 100 bp, in at least 2 genomes", sandwiched, min_genomes=2, same_strand=True,
+         max_dist=100, same_cog_id=True)
     # AI. downstream genes only, same strand, within 100 bp (2)
-    for cname, ex in cats_opts:
-        add("AI. Downstream, same strand, close", f"linear weights, 5 neighbours, only downstream genes on the "
-            f"target's strand within 100 bp vote, {cname}", close_vote, side="down", max_dist=100,
-            curve="linear", n=5, exclude=ex)
-
+    both("AI. Downstream, same strand, close", "linear weights, 5 neighbours, only downstream genes on the "
+         "target's strand within 100 bp vote", close_vote, side="down", max_dist=100, curve="linear", n=5)
     # AJ. sandwiched with a tie-break (2)
-    for cname, ex in cats_opts:
-        add("AJ. Sandwiched (tie-break)", f"closest gene on both sides has the same category, both on the "
-            f"target's strand and within 100 bp, in at least 2 genomes; ties go to the category whose genes "
-            f"are closer, {cname}", sandwiched, exclude=ex, min_genomes=2, same_strand=True, max_dist=100,
-            tiebreak="closest")
-
+    both("AJ. Sandwiched (tie-break)", "closest gene on both sides has the same category, both on the target's "
+         "strand and within 100 bp, in at least 2 genomes; ties go to the category whose genes are closer",
+         sandwiched, min_genomes=2, same_strand=True, max_dist=100, tiebreak="closest")
     # AK. sandwiched, very close (2)
-    for cname, ex in cats_opts:
-        add("AK. Sandwiched (very close)", f"closest gene on both sides has the same category, both on the "
-            f"target's strand and within 50 bp, in at least 2 genomes, {cname}", sandwiched, exclude=ex,
-            min_genomes=2, same_strand=True, max_dist=50)
-
-    # AL. the exact searches of AC/AD (C229-C236) done with FAISS, to compare speed and results (8)
-    for k in (10, 25):
-        for cname, ex in cats_opts:
-            add("AL. FAISS nearest neighbours", f"the {k} smORFs with the most similar neighbourhoods "
-                f"(COG IDs within 3 genes, exact search with FAISS) vote, {cname}", similar_vote,
-                engine="faiss", k=k, exclude=ex)
-    for k in (10, 25):
-        for cname, ex in cats_opts:
-            add("AL. FAISS nearest neighbours", f"the {k} smORFs with the most similar COG letters "
-                f"(5 genes per side, linear weights, up/downstream kept apart, exact search with FAISS) vote, "
-                f"{cname}", similar_vote, engine="faiss", k=k, exclude=ex, vectors="letters")
-
-    # AM. random forest without strand and/or distance, to see what each adds (42)
+    both("AK. Sandwiched (very close)", "closest gene on both sides has the same category, both on the target's "
+         "strand and within 50 bp, in at least 2 genomes", sandwiched, min_genomes=2, same_strand=True, max_dist=50)
+    # AL. the exact searches of AC/AD with FAISS (8)
+    for vectors, text in (("cog_ids", "neighbourhoods (COG IDs within 3 genes, exact search with FAISS)"),
+                          ("letters", "COG letters (5 genes per side, linear weights, up/downstream kept apart, "
+                                      "exact search with FAISS)")):
+        for k in (10, 25):
+            both("AL. FAISS nearest neighbours", f"the {k} smORFs with the most similar {text} vote", similar_vote,
+                 engine="faiss", k=k, vectors=vectors)
+    # AM. random forest without strand and/or distance (42)
     for drop, used in ((("strand",), "COG letters and distance (no strand)"),
                        (("distance",), "COG letters and strand (no distance)"),
                        (("strand", "distance"), "COG letters only (no strand, no distance)")):
         for cut in (None, 40, 50, 60, 70, 80, 90):
-            for cname, ex in cats_opts:
-                need = f", predict only if confidence >= {cut}%" if cut else ""
-                add("AM. Random forest (fewer features)", f"random forest on {used} of 5 genes per side "
-                    f"(each half predicted by a model trained on the other half){need}, {cname}",
-                    random_forest, exclude=ex, cutoff=cut, drop=drop)
-
-    # AN. other ML models, same features and halves as the random forest (72)
+            both("AM. Random forest (fewer features)", f"random forest on {used} of 5 genes per side "
+                 f"{HALVES}{need(cut)}", random_forest, cutoff=cut, drop=drop)
+    # AN. other ML models, same features and halves (72)
     for model, text in ML_MODELS.items():
-        for cut in (None, 50, 60, 70, 80, 90):
-            for cname, ex in cats_opts:
-                need = f", predict only if confidence >= {cut}%" if cut else ""
-                add("AN. Other ML models", f"{text} on COG letters, strand and distance of 5 genes per side "
-                    f"(each half predicted by a model trained on the other half){need}, {cname}",
-                    ml_model, model=model, exclude=ex, cutoff=cut)
-
-    # AO. ensemble: the average of the random forest, gradient boosting, extra trees,
-    # logistic regression and neural network probabilities (12)
-    for cut in (None, 50, 60, 70, 80, 90):
-        for cname, ex in cats_opts:
-            need = f", predict only if confidence >= {cut}%" if cut else ""
-            add("AO. ML ensemble", f"average of random forest, gradient boosting, extra trees, logistic "
-                f"regression and neural network (each half predicted by models trained on the other half)"
-                f"{need}, {cname}", ml_ensemble, exclude=ex, cutoff=cut)
-
-    # AP. the ML rules again, but related smORFs (same target gene, or neighbourhoods
-    # with cosine similarity >= 0.9) are kept in the same half, so a smORF is never
-    # scored by a model trained on its near-copy. If accuracy drops a lot compared
-    # with the same rule in AE/AG/AN/AO, those scores were inflated (84)
-    grouped = "(related smORFs kept in the same half: same target gene or neighbourhood similarity >= 0.9)"
-    for model, text in (("forest", "random forest"),) + tuple(
-            (m, ML_MODELS[m]) for m in ("extra_trees", "boosting", "logistic", "knn", "mlp")) + (
-            ("ensemble", "average of random forest, gradient boosting, extra trees, logistic regression and "
-                         "neural network"),):
-        for cut in (None, 50, 60, 70, 80, 90):
-            for cname, ex in cats_opts:
-                need = f", predict only if confidence >= {cut}%" if cut else ""
-                rule = (f"{text} on COG letters, strand and distance of 5 genes per side, each half predicted by "
-                        f"a model trained on the other half {grouped}{need}, {cname}")
-                if model == "forest":
-                    add("AP. Grouped halves", rule, random_forest, exclude=ex, cutoff=cut, split="grouped")
-                elif model == "ensemble":
-                    add("AP. Grouped halves", rule, ml_ensemble, exclude=ex, cutoff=cut, split="grouped")
-                else:
-                    add("AP. Grouped halves", rule, ml_model, model=model, exclude=ex, cutoff=cut, split="grouped")
-
-    # AQ. random forest on COG letters only (no strand, no distance), grouped halves:
-    # the simplest model, scored the strict way (12)
-    for cut in (None, 50, 60, 70, 80, 90):
-        for cname, ex in cats_opts:
-            need = f", predict only if confidence >= {cut}%" if cut else ""
-            add("AQ. Grouped halves, COG letters only", f"random forest on COG letters only (no strand, no "
-                f"distance) of 5 genes per side, each half predicted by a model trained on the other half "
-                f"{grouped}{need}, {cname}", random_forest, exclude=ex, cutoff=cut, drop=("strand", "distance"),
-                split="grouped")
+        for cut in CUTS:
+            both("AN. Other ML models", f"{text} on COG letters, strand and distance of 5 genes per side "
+                 f"{HALVES}{need(cut)}", ml_model, model=model, cutoff=cut)
+    # AO. ensemble (12)
+    for cut in CUTS:
+        both("AO. ML ensemble", f"{ENSEMBLE_TEXT} (each half predicted by models trained on the other half)"
+             f"{need(cut)}", ml_ensemble, cutoff=cut)
+    # AP. the ML rules again with related smORFs in the same half; a big drop
+    # from AE/AG/AN/AO means those scores were inflated (84)
+    for model, text in (("forest", "random forest"), ("extra_trees", ML_MODELS["extra_trees"]),
+                        ("boosting", ML_MODELS["boosting"]), ("logistic", ML_MODELS["logistic"]),
+                        ("knn", ML_MODELS["knn"]), ("mlp", ML_MODELS["mlp"]), ("ensemble", ENSEMBLE_TEXT)):
+        fn, s = ((ml_ensemble, {}) if model == "ensemble" else
+                 (random_forest, {}) if model == "forest" else (ml_model, {"model": model}))
+        for cut in CUTS:
+            both("AP. Grouped halves", f"{text} on COG letters, strand and distance of 5 genes per side, "
+                 f"{GROUPED}{need(cut)}", fn, **s, cutoff=cut, split="grouped")
+    # AQ. random forest on COG letters only, grouped halves (12)
+    for cut in CUTS:
+        both("AQ. Grouped halves, COG letters only", f"random forest on COG letters only (no strand, no distance) "
+             f"of 5 genes per side, {GROUPED}{need(cut)}", random_forest, cutoff=cut, drop=("strand", "distance"),
+             split="grouped")
     return combos
 
 
-# ------------------------------------------------------------- predict ----
-
-def predict(d, combos, save=True):
-    """Every rule predicts for every smORF."""
-    preds, pcts = {}, {}
-    for c in combos:
-        t = time.time()
-        preds[c["id"]], pcts[c["id"]] = p, s = c["fn"](d, **c["settings"])
-        made = (p < d.n_cats).sum()
-        print(f"  {c['id']}  predicted {made / d.smorfs.height * 100:5.1f}% of smORFs  "
-              f"({time.time() - t:.1f}s)  {c['rule']}", flush=True)
-    if save:
-        labels = pl.Series(d.labels)
-        (d.smorfs.select("bin", "smorf_id",
-                         annotated=pl.when("annotated").then(pl.lit("yes")).otherwise(pl.lit("no")),
-                         known_category="known_category")
-         .with_columns(labels.gather(preds[c["id"]]).alias(c["id"]) for c in combos)
-         .write_csv("predictions_all_smorfs.tsv", separator="\t", line_terminator="\r\n",
-                    quote_style="never"))
-    return preds, pcts
-
-
-# ------------------------------------------------------------ evaluate ----
+# --------------------------------------------------- predict, evaluate ----
 
 def pct(a, b):
     return f"{a / b * 100:.1f}" if b else ""
 
 
+def predict(d, combos, save=True):
+    preds, pcts = {}, {}
+    for c in combos:
+        t = time.time()
+        preds[c["id"]], pcts[c["id"]] = p, _ = c["fn"](d, **c["settings"])
+        print(f"  {c['id']}  predicted {(p < d.n_cats).mean() * 100:5.1f}% of smORFs  "
+              f"({time.time() - t:.1f}s)  {c['rule']}", flush=True)
+    if save:
+        labels = pl.Series(d.labels)
+        (d.smorfs.select("bin", "smorf_id", annotated=pl.when("annotated").then(pl.lit("yes")).otherwise(pl.lit("no")),
+                         known_category="known_category")
+         .with_columns(labels.gather(preds[c["id"]]).alias(c["id"]) for c in combos)
+         .write_csv("predictions_all_smorfs.tsv", separator="\t", quote_style="never"))
+    return preds, pcts
+
+
 def evaluate(d, combos, preds, pcts, save=True):
-    """Score each rule on the smORFs with a known category (not excluded by
-    the rule): correct if any known category. Coverage = % of annotated
-    smORFs evaluated."""
+    """Score each rule on the smORFs with a known (not excluded) category:
+    correct if any known category. Coverage = % of annotated smORFs evaluated."""
     bins = sorted(set(d.smorfs["bin"].to_list()))
     bin_of = d.smorfs["bin"].cast(pl.Enum(bins)).to_physical().to_numpy()
     annotated = d.smorfs["annotated"].to_numpy()
     annot_by_bin = np.bincount(bin_of[annotated], minlength=len(bins))
-    smorf = d.targets["smorf"].to_numpy()
-    cat = d.targets["cat"].cast(pl.Enum(d.labels[:d.n_cats])).to_physical().to_numpy()
     rows, by_bin = [], []
-    known = {}  # exclude -> (smorf x category known, smorf has one)
-
     for c in combos:
-        ex = tuple(c["exclude"])
-        if ex not in known:
-            k = np.zeros((d.smorfs.height, d.n_cats), dtype=bool)
-            keep = ~d.excluded(cat, ex)
-            k[smorf[keep], cat[keep]] = True
-            known[ex] = k, k.any(axis=1)
-        k, has_known = known[ex]
+        k = known_matrix(d, c["exclude"])
         p, s = preds[c["id"]], pcts[c["id"]]
         made = p < d.n_cats
-        ev = made & has_known
+        ev = made & k.any(axis=1)
         ok = ev & k[np.arange(len(p)), np.minimum(p, d.n_cats - 1)]
-        tier = np.full(len(p), -1)
-        for i, (t, low) in reversed(list(enumerate(TIERS))):
-            tier = np.where(~(s < low - PCT_TOLERANCE), i, tier)
-
-        a = {"n": len(p), "pred": made.sum(), "annot": annotated.sum(), "eval": ev.sum(), "correct": ok.sum()}
+        tier = np.select([~(s < low - PCT_TOLERANCE) for _, low in TIERS], range(len(TIERS)), -1)  # NaN: top tier
+        row = {"ID": c["id"], "Group": c["group"], "Rule": c["rule"], "Accuracy (%)": pct(ok.sum(), ev.sum()),
+               "Coverage (% of annotated smORFs evaluated)": pct(ev.sum(), annotated.sum()),
+               "smORFs predicted (% of all)": pct(made.sum(), len(p)),
+               "Evaluated (n)": int(ev.sum()), "Correct (n)": int(ok.sum())}
         for i, (t, _) in enumerate(TIERS):
-            a[f"{t} n"], a[f"{t} ok"] = (ev & (tier == i)).sum(), (ok & (tier == i)).sum()
-        a = {x: int(y) for x, y in a.items()}
-        row = {"ID": c["id"], "Group": c["group"], "Rule": c["rule"],
-               "smORFs predicted (% of all)": pct(a["pred"], a["n"]),
-               "Coverage (% of annotated smORFs evaluated)": pct(a["eval"], a["annot"]),
-               "Evaluated (n)": a["eval"], "Correct (n)": a["correct"],
-               "Accuracy (%)": pct(a["correct"], a["eval"])}
-        for t, _ in TIERS:
-            row[f"{t} n"] = a[f"{t} n"]
-            row[f"{t} accuracy (%)"] = pct(a[f"{t} ok"], a[f"{t} n"])
+            row[f"{t} n"] = int((ev & (tier == i)).sum())
+            row[f"{t} accuracy (%)"] = pct((ok & (tier == i)).sum(), row[f"{t} n"])
         rows.append(row)
-        ev_by_bin = np.bincount(bin_of[ev], minlength=len(bins))
-        ok_by_bin = np.bincount(bin_of[ok], minlength=len(bins))
-        for i, b in enumerate(bins):
-            n_ev, n_ok, n_annot = int(ev_by_bin[i]), int(ok_by_bin[i]), int(annot_by_bin[i])
-            by_bin.append({"ID": c["id"], "Rule": c["rule"], "Bin": b,
-                           "Coverage (%)": pct(n_ev, n_annot), "Evaluated (n)": n_ev,
-                           "Correct (n)": n_ok, "Accuracy (%)": pct(n_ok, n_ev)})
+        n_ev, n_ok = np.bincount(bin_of[ev], minlength=len(bins)), np.bincount(bin_of[ok], minlength=len(bins))
+        by_bin += [{"ID": c["id"], "Rule": c["rule"], "Bin": b, "Coverage (%)": pct(n_ev[i], annot_by_bin[i]),
+                    "Evaluated (n)": int(n_ev[i]), "Correct (n)": int(n_ok[i]), "Accuracy (%)": pct(n_ok[i], n_ev[i])}
+                   for i, b in enumerate(bins)]
 
     ranked = sorted(rows, key=lambda r: float(r["Accuracy (%)"] or 0), reverse=True)
     for rank, r in enumerate(ranked, 1):
         r["Accuracy rank"] = rank
-    cols = ["ID", "Accuracy rank", "Group", "Rule", "Accuracy (%)",
-            "Coverage (% of annotated smORFs evaluated)", "smORFs predicted (% of all)",
-            "Evaluated (n)", "Correct (n)"] + [f"{t} {x}" for t, _ in TIERS for x in ("n", "accuracy (%)")]
     if save:
-        for name, out, fields in (("combinations_results.csv", rows, cols),
-                                  ("results_by_bin.csv", by_bin, list(by_bin[0]))):
-            with open(name, "w", newline="") as fh:
-                w = csv.DictWriter(fh, fieldnames=fields)
-                w.writeheader()
-                w.writerows(out)
+        cols = ["ID", "Accuracy rank", "Group", "Rule", "Accuracy (%)", "Coverage (% of annotated smORFs evaluated)",
+                "smORFs predicted (% of all)", "Evaluated (n)", "Correct (n)"] + \
+               [f"{t} {x}" for t, _ in TIERS for x in ("n", "accuracy (%)")]
+        pl.DataFrame(rows).select(cols).write_csv("combinations_results.csv")
+        pl.DataFrame(by_bin).write_csv("results_by_bin.csv")
 
-    print(f"\nAnnotated smORFs used for evaluation: {d.smorfs['annotated'].sum():,} of {d.smorfs.height:,}")
+    cov = "Coverage (% of annotated smORFs evaluated)"
+    print(f"\nAnnotated smORFs used for evaluation: {annotated.sum():,} of {d.n:,}")
     print("\nAll rules, most accurate first:")
     print(f"  {'rank':>4}  {'ID':4}  {'accuracy':>8}  {'coverage':>8}  {'evaluated':>9}  group: rule")
     for r in ranked:
-        print(f"  {r['Accuracy rank']:>4}  {r['ID']}  {r['Accuracy (%)']:>7}%  "
-              f"{r['Coverage (% of annotated smORFs evaluated)']:>7}%  {r['Evaluated (n)']:>9,}  "
-              f"{r['Group']}: {r['Rule']}")
+        print(f"  {r['Accuracy rank']:>4}  {r['ID']}  {r['Accuracy (%)']:>7}%  {r[cov]:>7}%  "
+              f"{r['Evaluated (n)']:>9,}  {r['Group']}: {r['Rule']}")
     orig = next(r for r in rows if "ORIGINAL" in r["Rule"] and "all categories" in r["Rule"])
-    print(f"\nOriginal method ({orig['ID']}): accuracy {orig['Accuracy (%)']}%  "
-          f"coverage {orig['Coverage (% of annotated smORFs evaluated)']}%")
+    print(f"\nOriginal method ({orig['ID']}): accuracy {orig['Accuracy (%)']}%  coverage {orig[cov]}%")
     return rows
 
 
 # -------------------------------------------------------------- report ----
-# --report (supervisor meeting 28 October 2026): how accurate the random
-# forest is at each confidence level, and rules compared one setting at a time
 
 CONFIDENCE_STEPS = (0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 CALIBRATION_BINS = (0.0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.01)
 
 
 def forest_report(d, out):
-    """Random forest (rules AE) on the TEST half, as cascade.py: accuracy if
-    only predictions with confidence >= x are kept, accuracy per confidence
-    bin (the estimated accuracy of a prediction), the most important
-    features; and random_forest_predictions.tsv."""
+    """Random forest (rules AE) on the TEST half: accuracy by confidence
+    cutoff and per confidence bin, top features; random_forest_predictions.tsv"""
     train, test = halves(d)
     out.append("1. RANDOM FOREST on the TEST half (predicted by the model trained on the TRAIN half)")
-    for cname, ex in (("all categories", ()), ("excluding S and R", SR)):
-        if ("forest", ex) not in d.cache:
-            continue
-        prob, k = d.cache[("forest", ex)], known_matrix(d, ex)
+    for cname, ex in CATS:
+        prob, k = ml_probabilities(d, "forest", ex), known_matrix(d, ex)
         conf = prob.max(axis=1)
         pred = np.where(conf > 0, prob.argmax(axis=1), d.code("NO_EVIDENCE"))
         made = (pred[test] < d.n_cats) & k[test].any(axis=1)
@@ -1709,13 +1409,11 @@ def forest_report(d, out):
             b = made & (c >= lo) & (c < hi)
             out.append(f"  {lo:.1f}-{min(hi, 1):.1f}\t{b.sum():,}\t{pct((right & b).sum(), b.sum())}")
         if not ex:
-            x = ml_features(d)
-            model = fit_forest(x, k, train)
+            imp = fit_model("forest", ml_features(d), k, train).feature_importances_
             names = feature_names(d)
-            top = np.argsort(-model.feature_importances_)[:15]
             out.append("  most important features (model trained on TRAIN): "
-                       + ", ".join(f"{names[i]} ({model.feature_importances_[i]:.3f})" for i in top))
-            part = np.full(d.smorfs.height, "", dtype=object)
+                       + ", ".join(f"{names[i]} ({imp[i]:.3f})" for i in np.argsort(-imp)[:15]))
+            part = np.full(d.n, "", dtype=object)
             part[train], part[test] = "TRAIN", "TEST"
             (d.smorfs.select("bin", "smorf_id", "known_category")
              .with_columns(half=pl.Series(part.tolist()), prediction=pl.Series(d.labels).gather(pred),
@@ -1723,87 +1421,72 @@ def forest_report(d, out):
              .write_csv("random_forest_predictions.tsv", separator="\t"))
 
 
-def full_settings(c):
-    """The rule's settings with the function's defaults filled in"""
-    import inspect
-    s = {k: p.default for k, p in inspect.signature(c["fn"]).parameters.items()
-         if p.default is not inspect.Parameter.empty}
-    s.update(c["settings"])
-    return s
-
-
-def same_value(a, b):
-    if isinstance(a, np.ndarray) or isinstance(b, np.ndarray) or isinstance(a, random.Random):
-        return a is b
-    try:
-        return bool(a == b)
-    except Exception:
-        return a is b
-
-
 def shown(v):
     if isinstance(v, np.ndarray):
         return "divided by how common"
-    if isinstance(v, tuple) and not v:
-        return "none"
-    if isinstance(v, tuple) and all(isinstance(x, str) for x in v):
-        return ",".join(v)
+    if isinstance(v, tuple):
+        return ",".join(v) if all(isinstance(x, str) for x in v) and v else ("none" if not v else str(v))
     return str(v)
 
 
 def one_factor_report(combos, rows, out):
-    """Every pair of rules that differ in exactly one setting (same method),
-    with the change in accuracy and coverage; summarised per setting.
-    Writes one_factor_comparisons.tsv."""
+    """Every pair of rules (same method) differing in exactly one setting, with
+    the change in accuracy and coverage, summarised per setting"""
     cov = "Coverage (% of annotated smORFs evaluated)"
     res = {r["ID"]: r for r in rows if r["Accuracy (%)"]}
+
+    def full(c):  # settings with the function's defaults filled in
+        return {**{k: p.default for k, p in inspect.signature(c["fn"]).parameters.items()
+                   if p.default is not inspect.Parameter.empty}, **c["settings"]}
+
+    def same(a, b):
+        if isinstance(a, (np.ndarray, random.Random)) or isinstance(b, np.ndarray):
+            return a is b
+        try:
+            return bool(a == b)
+        except Exception:
+            return a is b
+
     by_fn = {}
     for c in combos:
         if c["id"] in res and not c["group"].startswith("J."):
-            by_fn.setdefault(c["fn"].__name__, []).append(c)
+            by_fn.setdefault(c["fn"].__name__, []).append((c, full(c)))
     pairs = []
     for fn, cs in by_fn.items():
-        full = [full_settings(c) for c in cs]
-        for i in range(len(cs)):
-            for j in range(i + 1, len(cs)):
-                diff = [k for k in set(full[i]) | set(full[j]) if not same_value(full[i].get(k), full[j].get(k))]
+        for i, (ci, fi) in enumerate(cs):
+            for cj, fj in cs[i + 1:]:
+                diff = [k for k in fi.keys() | fj.keys() if not same(fi.get(k), fj.get(k))]
                 if len(diff) != 1:
                     continue
-                f, a, b = diff[0], i, j
-                va, vb = full[a].get(f), full[b].get(f)
+                f = diff[0]
+                (ca, va), (cb, vb) = (ci, fi.get(f)), (cj, fj.get(f))
                 if (isinstance(va, (int, float)) and isinstance(vb, (int, float)) and va > vb) or \
                         (vb is None and va is not None):
-                    a, b, va, vb = b, a, vb, va
-                ra, rb = res[cs[a]["id"]], res[cs[b]["id"]]
+                    (ca, va), (cb, vb) = (cb, vb), (ca, va)
+                ra, rb = res[ca["id"]], res[cb["id"]]
                 pairs.append({"method": fn, "setting": f, "from": shown(va), "to": shown(vb),
-                              "rule A": cs[a]["id"], "rule B": cs[b]["id"],
+                              "rule A": ca["id"], "rule B": cb["id"],
                               "accuracy A": float(ra["Accuracy (%)"]), "accuracy B": float(rb["Accuracy (%)"]),
                               "coverage A": float(ra[cov]), "coverage B": float(rb[cov])})
-    out.append("\n2. ONE FACTOR AT A TIME: rule pairs that differ in exactly one setting "
-               "(all annotated smORFs)")
+    out.append("\n2. ONE FACTOR AT A TIME: rule pairs that differ in exactly one setting (all annotated smORFs)")
     if not pairs:
         out.append("  no pairs")
         return
-    for p in pairs:
-        p["accuracy change"] = round(p["accuracy B"] - p["accuracy A"], 1)
-        p["coverage change"] = round(p["coverage B"] - p["coverage A"], 1)
-    with open("one_factor_comparisons.tsv", "w", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=list(pairs[0]), delimiter="\t")
-        w.writeheader()
-        w.writerows(pairs)
-    groups = {}
-    for p in pairs:
-        groups.setdefault((p["method"], p["setting"], p["from"], p["to"]), []).append(p)
+    df = pl.DataFrame(pairs).with_columns(
+        (pl.col("accuracy B") - pl.col("accuracy A")).round(1).alias("accuracy change"),
+        (pl.col("coverage B") - pl.col("coverage A")).round(1).alias("coverage change"))
+    df.write_csv("one_factor_comparisons.tsv", separator="\t")
     out.append(f"  {len(pairs)} pairs (all in one_factor_comparisons.tsv); median change from A to B:")
     out.append("method\tsetting\tfrom -> to\tpairs\taccuracy change\tcoverage change")
-    for (fn, f, va, vb), ps in sorted(groups.items()):
-        out.append(f"{fn}\t{f}\t{va} -> {vb}\t{len(ps)}\t{np.median([p['accuracy change'] for p in ps]):+.1f}\t"
-                   f"{np.median([p['coverage change'] for p in ps]):+.1f}")
+    for r in (df.group_by("method", "setting", "from", "to")
+              .agg(pl.len(), pl.col("accuracy change").median(), pl.col("coverage change").median())
+              .sort("method", "setting", "from", "to").iter_rows(named=True)):
+        out.append(f"{r['method']}\t{r['setting']}\t{r['from']} -> {r['to']}\t{r['len']}\t"
+                   f"{r['accuracy change']:+.1f}\t{r['coverage change']:+.1f}")
     out.append("  (setting 'exclude': the two rules are scored on different smORFs, so compare with care)")
 
 
 def report(d, combos, rows):
-    """--report: report.txt, random_forest_predictions.tsv, one_factor_comparisons.tsv"""
     out = []
     forest_report(d, out)
     one_factor_report(combos, rows, out)
@@ -1813,17 +1496,14 @@ def report(d, combos, rows):
 
 
 def main():
-    flags = {"--save", "--report"}
-    args = [a for a in sys.argv[1:] if a not in flags]
-    save = "--save" in sys.argv[1:]
-    with_report = "--report" in sys.argv[1:]
+    args = [a for a in sys.argv[1:] if a not in ("--save", "--report")]
+    save, with_report = "--save" in sys.argv, "--report" in sys.argv
     if len(args) != 1:
         sys.exit(__doc__)
     t0 = time.time()
     d = load_db(args[0])
-    print(f"Loaded {d.smorfs.height:,} smORFs in {time.time() - t0:.1f}s", flush=True)
+    print(f"Loaded {d.n:,} smORFs in {time.time() - t0:.1f}s", flush=True)
     combos = build_combinations(d)
-
     print(f"\nPART 1 - PREDICT: {len(combos)} rules on all smORFs", flush=True)
     preds, pcts = predict(d, combos, save)
     print("\nPART 2 - EVALUATE: annotated smORFs only", flush=True)
@@ -1831,7 +1511,6 @@ def main():
     if with_report:
         print("\nPART 3 - REPORT", flush=True)
         report(d, combos, rows)
-
     print(f"\nDone in {(time.time() - t0) / 60:.1f} min."
           + (" Saved predictions_all_smorfs.tsv, combinations_results.csv, results_by_bin.csv" if save
              else " No files saved (add --save to save them).")

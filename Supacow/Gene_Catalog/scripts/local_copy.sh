@@ -11,7 +11,7 @@ exec 9>"$BASE/$NAME.lock"
 flock 9
 if [ ! -f "$DEST/.copied" ]; then
     rm -rf "$DEST"
-    need=$(du -sk "$SRC" | cut -f1)
+    need=$(find "$SRC" -type f -printf "%s\n" | awk '{s+=$1} END {print int(s/1024)}')  # du is wrong on home
     free=$(df -Pk "$BASE" | awk 'NR==2 {print $4}')
     echo "copying $SRC ($need kB) to $DEST ($free kB free): $(date)" >&2
     [ "$free" -gt $((need + 20000000)) ] || { echo "not enough local disk in $BASE" >&2; exit 1; }
