@@ -18,6 +18,12 @@ if not MAGS:
 os.environ["PATH"] = f"{config['env_bin']}:" + os.environ["PATH"]  # xz for the scripts
 EGG_CHUNKS = [f"{i:02d}" for i in range(int(config["eggnog_chunks"]))]
 GMSC_CHUNKS = [f"{i:02d}" for i in range(int(config["gmsc_chunks"]))]
+MAX_MEM = int(config.get("max_mem_mb", 380000))
+
+
+def mem(base):
+    """memory doubles on each retry (run_pipeline.sh --retries), capped at the job's total"""
+    return lambda wildcards, attempt: min(base * 2 ** (attempt - 1), MAX_MEM)
 
 
 rule all:
@@ -196,7 +202,7 @@ rule eggnog_chunk:
         "logs/eggnog/chunk{c}.log",
     threads: 8
     resources:
-        mem_mb=40000,
+        mem_mb=mem(40000),
     shell:
         r"""
         set -euo pipefail
@@ -253,7 +259,7 @@ rule gmsc_mapper:
         "logs/gmsc/chunk{g}.log",
     threads: 8
     resources:
-        mem_mb=90000,
+        mem_mb=mem(90000),
     shell:
         r"""
         set -euo pipefail
@@ -297,9 +303,9 @@ rule smorf_cdhit:
         "logs/10_smorf_cdhit.log",
     threads: 16
     resources:
-        mem_mb=20000,
+        mem_mb=mem(20000),
     shell:
-        "{config[env_bin]}/cd-hit -i {input} -o {output.faa} -c 0.9 -n 5 -M 16000 -T {threads} -d 0 > {log} 2>&1 "
+        "{config[env_bin]}/cd-hit -i {input} -o {output.faa} -c 0.9 -n 5 -M $(( {resources.mem_mb} - 4000 )) -T {threads} -d 0 > {log} 2>&1 "
         "&& mv {output.faa}.clstr {output.clstr}"
 
 

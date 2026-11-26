@@ -16,5 +16,6 @@ gmsc_bin: /home/n12228516/.conda/envs/gmscmapper/bin             # GMSC-mapper 0
 gmsc_db: /home/n12228516/tools/GMSC-mapper_git_version/db        # copied to $TMPDIR before use
 
 threads: 32         # for mmseqs
+max_mem_mb: 380000  # memory for all rules together (job has 400 GB); a failed rule is retried with double memory, up to this
 eggnog_chunks: 20   # eggNOG runs in this many pieces, 8 CPUs each
 gmsc_chunks: 16     # GMSC-mapper runs on this many groups of MAGs, 8 CPUs each

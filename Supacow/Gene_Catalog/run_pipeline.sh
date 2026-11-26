@@ -12,7 +12,7 @@ OUT=$(grep '^out_dir:' "$HERE/config.yaml" | awk '{print $2}')
 CPUS=32
 mkdir -p "$OUT"
 
-CMD="snakemake -s $HERE/Snakefile --configfile $HERE/config.yaml --directory $OUT --cores $CPUS --resources mem_mb=380000 --rerun-incomplete --keep-going --printshellcmds"
+CMD="snakemake -s $HERE/Snakefile --configfile $HERE/config.yaml --directory $OUT --cores $CPUS --resources mem_mb=380000 --rerun-incomplete --keep-going --retries 2 --printshellcmds"
 
 if [ "${1:-}" = "--dry-run" ]; then
     $CMD --dry-run --quiet
